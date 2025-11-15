@@ -39,7 +39,7 @@ ENV/
 
 # Reports
 *.json
-*.md
+
 reports/
 
 # Testing
