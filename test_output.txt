@@ -1,0 +1,40 @@
+Traceback (most recent call last):
+  File "/home/cheese/Documents/Vault/Blockchain/Project/mev-inspect-pyrevm/quick_test.py", line 55, in test_transaction_analysis
+    swaps = detector.detect_swaps(tx_hash, block_number)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/cheese/Documents/Vault/Blockchain/Project/mev-inspect-pyrevm/mev_inspect/enhanced_swap_detector.py", line 166, in detect_swaps
+    replayer = TransactionReplayer(
+               ^^^^^^^^^^^^^^^^^^^^
+  File "/home/cheese/Documents/Vault/Blockchain/Project/mev-inspect-pyrevm/mev_inspect/replay.py", line 87, in __init__
+    raise ImportError(
+ImportError: PyRevm is required for transaction replay. Install with: pip install pyrevm>=0.3.0
+============================================================
+MEV-INSPECT-PYREVM: Quick Production Test
+============================================================
+Testing imports...
+✅ All imports successful
+
+Testing RPC: https://eth-mainnet.g.alchemy.com/v2/Ks07rtt_4P4Y4...
+✅ RPC working - Latest block: 23832654
+
+Testing transaction analysis...
+  Fetching transaction...
+  Block: 11912416
+  Initializing state manager...
+  Detecting swaps...
+❌ Analysis failed: PyRevm is required for transaction replay. Install with: pip install pyrevm>=0.3.0
+
+Testing cache...
+❌ Cache failed: StateManager.__init__() got an unexpected keyword argument 'cache_size'
+
+============================================================
+TEST SUMMARY
+============================================================
+Imports                        ✅ PASS
+RPC Connection                 ✅ PASS
+Transaction Analysis           ❌ FAIL
+Cache                          ❌ FAIL
+
+Total: 2/4 passed
+
+❌ 2 TEST(S) FAILED

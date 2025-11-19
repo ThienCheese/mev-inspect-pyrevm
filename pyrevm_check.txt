@@ -1,0 +1,10 @@
+Testing PyRevm import...
+--------------------------------------------------
+❌ Failed to import PyRevm: cannot import name 'TransactTo' from 'pyrevm' (/home/cheese/Documents/Vault/Blockchain/Project/mev-inspect-pyrevm/.venv/lib/python3.12/site-packages/pyrevm/__init__.py)
+
+Try installing: pip install pyrevm>=0.3.0
+
+Checking pip list...
+Found in pip:
+  mev-inspect-pyrevm 0.1.0           /home/cheese/Documents/Vault/Blockchain/Project/mev-inspect-pyrevm
+  pyrevm             0.3.3

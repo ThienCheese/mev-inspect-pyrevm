@@ -9,6 +9,8 @@ try:
 except ImportError:
     PYREVM_AVAILABLE = False
 
+from mev_inspect.state_manager import StateManager
+
 
 class StateSimulator:
     """State simulator using RPC calls (compatible with Alchemy Free Tier)."""
@@ -17,6 +19,8 @@ class StateSimulator:
         """Initialize simulator at a specific block."""
         self.rpc_client = rpc_client
         self.block_number = block_number
+        # Initialize StateManager for caching account/code/storage
+        self.state_manager = StateManager(rpc_client, block_number)
         self.evm: Optional[Any] = None
         self.use_pyrevm = PYREVM_AVAILABLE
         if self.use_pyrevm:
@@ -44,20 +48,34 @@ class StateSimulator:
         )
         self.evm.block_env = block_env
 
-        # Note: In a full implementation, we would need to:
-        # 1. Load all account states from the RPC
-        # 2. Load all contract code
-        # 3. Set up storage for all contracts
-        # This is simplified for now - in production, you'd want to cache state
+        # Phase 1: StateManager handles caching for account/code/storage reads
+        # Phase 2+: We'll load accounts into PyRevm for full transaction replay
 
+    def preload_transaction_addresses(self, tx_data: Dict[str, Any]):
+        """Preload addresses that will be accessed during transaction simulation.
+        
+        This is an optimization to batch-load state before simulation.
+        """
+        addresses = set()
+        
+        # Add transaction participants
+        if tx_data.get("from"):
+            addresses.add(tx_data["from"])
+        if tx_data.get("to"):
+            addresses.add(tx_data["to"])
+        
+        # Preload all addresses at once
+        if addresses:
+            self.state_manager.preload_addresses(addresses)
+    
     def get_pool_state(
         self, pool_address: str, dex_type: str
     ) -> Dict[str, Any]:
         """Get current state of a DEX pool."""
         # Use RPC calls instead of EVM for compatibility
 
-        # Get pool contract code
-        code = self.rpc_client.get_code(pool_address)
+        # Get pool contract code via StateManager (cached)
+        code = self.state_manager.get_code(pool_address)
         if not code or code == "0x":
             return {}
 
@@ -99,8 +117,8 @@ class StateSimulator:
         # UniswapV3 slot0 contains: uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, ...
         # We'd read slot0 storage directly
         try:
-            slot0 = self.rpc_client.get_storage_at(pool_address, 0, self.block_number)
-            liquidity = self.rpc_client.get_storage_at(pool_address, 1, self.block_number)
+            slot0 = self.state_manager.get_storage(pool_address, 0)
+            liquidity = self.state_manager.get_storage(pool_address, 1)
             # Both are bytes
             return {
                 "slot0": slot0.hex() if slot0 else "0x0",
@@ -220,6 +238,9 @@ class StateSimulator:
 
         tx = self.rpc_client.get_transaction(tx_hash)
         receipt = self.rpc_client.get_transaction_receipt(tx_hash)
+        
+        # Preload addresses for better performance
+        self.preload_transaction_addresses(tx)
 
         # Execute transaction simulation
         try:
@@ -260,4 +281,31 @@ class StateSimulator:
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get StateManager cache statistics for monitoring performance."""
+        stats = self.state_manager.stats()
+        
+        # Calculate hit rates
+        account_total = stats["account_hits"] + stats["account_misses"]
+        storage_total = stats["storage_hits"] + stats["storage_misses"]
+        code_total = stats["code_hits"] + stats["code_misses"]
+        
+        return {
+            "account_cache": {
+                "hits": stats["account_hits"],
+                "misses": stats["account_misses"],
+                "hit_rate": stats["account_hits"] / account_total if account_total > 0 else 0.0,
+            },
+            "storage_cache": {
+                "hits": stats["storage_hits"],
+                "misses": stats["storage_misses"],
+                "hit_rate": stats["storage_hits"] / storage_total if storage_total > 0 else 0.0,
+            },
+            "code_cache": {
+                "hits": stats["code_hits"],
+                "misses": stats["code_misses"],
+                "hit_rate": stats["code_hits"] / code_total if code_total > 0 else 0.0,
+            },
+        }
 

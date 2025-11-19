@@ -1,0 +1,73 @@
+==========================================
+MEV-INSPECT-PYREVM: Production Test Suite
+==========================================
+
+{[0;32m}✅ RPC_URL: https://eth-mainnet.g.alchemy.com/v2/Ks07rtt_4P4Y4GCYbFy2e{[0m}
+
+==========================================
+SECTION 1: Dependencies Check
+==========================================
+Checking Python version... {[0;32m}✅ Python 3.12.3{[0m}
+Checking web3... {[0;32m}✅ web3 7.14.0{[0m}
+Checking pyrevm (optional)... {[0;32m}✅ pyrevm installed{[0m}
+
+==========================================
+SECTION 2: Core Module Tests
+==========================================
+Testing core imports... {[0;32m}✅ All core modules import successfully{[0m}
+
+==========================================
+SECTION 3: Unit Tests
+==========================================
+Running test_phase1_state_manager.py... {[1;33m}⚠️  Not found{[0m}
+Running test_phase2_replay.py... {[0;32m}✅ Passed{[0m}
+Running test_phase3_enhanced_detector.py... {[0;32m}✅ Passed{[0m}
+Running test_phase4_profit_calculator.py... {[0;32m}✅ Passed{[0m}
+
+==========================================
+SECTION 4: Integration Tests with Real Data
+==========================================
+Testing with known MEV transaction... OK: Analysis completed, found 0 swaps
+{[0;32m}✅ Passed{[0m}
+Testing with latest block... OK: Block 23832756 has 201 transactions
+{[0;32m}✅ Passed{[0m}
+
+==========================================
+SECTION 5: Performance Check
+==========================================
+Testing cache performance... Traceback (most recent call last):
+  File "<string>", line 23, in <module>
+TypeError: StateManager.__init__() got an unexpected keyword argument 'cache_size'
+ERROR: StateManager.__init__() got an unexpected keyword argument 'cache_size'
+{[0;31m}❌ Cache performance issue{[0m}
+
+==========================================
+SECTION 6: File Structure Check
+==========================================
+Checking mev_inspect/__init__.py... {[0;32m}✅ Found{[0m}
+Checking mev_inspect/state_manager.py... {[0;32m}✅ Found{[0m}
+Checking mev_inspect/replay.py... {[0;32m}✅ Found{[0m}
+Checking mev_inspect/enhanced_swap_detector.py... {[0;32m}✅ Found{[0m}
+Checking mev_inspect/profit_calculator.py... {[0;32m}✅ Found{[0m}
+Checking mev_inspect/rpc.py... {[0;32m}✅ Found{[0m}
+Checking README.md... {[0;32m}✅ Found{[0m}
+Checking pyproject.toml... {[0;32m}✅ Found{[0m}
+
+==========================================
+SECTION 7: Package Build Test
+==========================================
+Testing package build... {[1;33m}⚠️  build module not installed (optional){[0m}
+
+==========================================
+TEST SUMMARY
+==========================================
+Passed:  {[0;32m}17 tests ✅{[0m}
+Failed:  {[0;31m}1 tests ❌{[0m}
+Skipped: {[1;33m}2 tests ⚠️{[0m}
+
+{[0;31m}==========================================
+❌ SOME TESTS FAILED - NOT READY
+=========================================={\033[0m}
+
+Please fix failed tests before deploying to production.
+

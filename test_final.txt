@@ -1,0 +1,30 @@
+============================================================
+MEV-INSPECT-PYREVM: Quick Production Test
+============================================================
+Testing imports...
+✅ All imports successful
+
+Testing RPC: https://eth-mainnet.g.alchemy.com/v2/Ks07rtt_4P4Y4...
+✅ RPC working - Latest block: 23832753
+
+Testing transaction analysis...
+  Fetching transaction...
+  Block: 11912416
+  Initializing state manager...
+  Detecting swaps...
+✅ Analysis complete - Found 0 swaps
+
+Testing cache...
+✅ Cache test passed
+
+============================================================
+TEST SUMMARY
+============================================================
+Imports                        ✅ PASS
+RPC Connection                 ✅ PASS
+Transaction Analysis           ✅ PASS
+Cache                          ✅ PASS
+
+Total: 4/4 passed
+
+✅ ALL TESTS PASSED - PRODUCTION READY!

@@ -1,6 +1,6 @@
 [project]
 name = "mev-inspect-pyrevm"
-version = "0.1.0"
+version = "0.2.0"
 description = "MEV Inspector for Ethereum using pyrevm for accurate state simulation"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,12 +16,28 @@ dependencies = [
     "aiohttp>=3.9.0",
 ]
 
+[project.optional-dependencies]
+pyrevm = [
+    "pyrevm>=0.3.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+]
+
 [project.scripts]
 mev-inspect = "mev_inspect.cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mev_inspect*"]
+exclude = ["reports*", "*.egg-info", ".venv*"]
 
 [tool.black]
 line-length = 100

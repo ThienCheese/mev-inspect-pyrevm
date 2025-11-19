@@ -38,6 +38,9 @@ class MEVInspector:
 
         # Initialize simulator
         simulator = StateSimulator(self.rpc_client, block_number)
+        
+        # Phase 1 optimization: Preload addresses from all transactions
+        self._preload_block_addresses(simulator, block["transactions"])
 
         # Initialize detectors
         arbitrage_detector = ArbitrageDetector(self.rpc_client, simulator)
@@ -215,4 +218,23 @@ class MEVInspector:
                 continue
 
         return swaps, transactions_info
+    
+    def _preload_block_addresses(self, simulator: StateSimulator, transactions: List[dict]):
+        """Preload addresses from all transactions in the block for better cache performance.
+        
+        This is a Phase 1 optimization that batch-loads account/code data upfront.
+        """
+        addresses = set()
+        
+        for tx in transactions:
+            # Add from/to addresses
+            if tx.get("from"):
+                addresses.add(tx["from"])
+            if tx.get("to"):
+                addresses.add(tx["to"])
+        
+        # Batch preload all addresses
+        if addresses:
+            simulator.state_manager.preload_addresses(addresses)
+
 
