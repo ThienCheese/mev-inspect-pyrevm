@@ -1,369 +1,494 @@
-# MEV Inspector with PyRevm
+# MEV-Inspect-PyRevm
 
-A comprehensive MEV (Maximal Extractable Value) inspection tool for Ethereum that uses pyrevm for accurate state simulation. Unlike mev-inspect-py, this tool works with Alchemy Free Tier RPC (no trace support) and provides both historical MEV detection and "what-if" scenario analysis.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## ✨ Features
+**Công cụ phát hiện và phân tích MEV (Maximal Extractable Value) trên Ethereum sử dụng PyRevm.**
 
-- 🔍 **Historical MEV Detection**: Inspect blocks or block ranges to detect arbitrage and sandwich attacks that actually occurred
-- 🎯 **What-If Analysis**: Simulate missed MEV opportunities to predict future patterns
-- 🏊 **Multi-DEX Support**: Supports UniswapV2, UniswapV3, Balancer, Sushiswap, and Curve
-- 📊 **Dual Report Modes**: Choose between basic (MEV findings only) or full (complete details) reports
-- ⚡ **Accurate Simulation**: Uses pyrevm for precise state simulation without requiring trace APIs
-- 💰 **Profit Calculations**: Automatic calculation of MEV profits including gas costs
+Phiên bản lightweight, hoạt động với Alchemy Free Tier (không cần trace API), cung cấp phân tích MEV chính xác với khả năng replay transaction qua PyRevm.
 
 ---
 
-## 📦 Installation
+## 🎯 Tính năng chính
 
-### Prerequisites
+✅ **4 Phase phân tích hoàn chỉnh:**
+- **Phase 1**: StateManager - Cache thông minh cho RPC calls
+- **Phase 2**: TransactionReplayer - Replay transactions với PyRevm  
+- **Phase 3**: EnhancedSwapDetector - Phát hiện swaps từ logs và trace
+- **Phase 4**: ProfitCalculator - Tính toán lợi nhuận MEV chính xác
 
-- Python 3.10 or higher
-- pip or poetry for package management
-- Alchemy API key (free tier works!)
+✅ **Hỗ trợ nhiều DEX:** Uniswap V2/V3, Sushiswap, Curve, Balancer
 
-### Setup Steps
+✅ **Tương thích RPC miễn phí:** Alchemy Free Tier, Infura, Ankr
 
-1. **Clone or navigate to this directory:**
-   ```bash
-   cd mev-inspect-pyrevm
-   ```
+✅ **Không cần trace API:** Sử dụng logs + PyRevm simulation
 
-2. **Install the package:**
-   ```bash
-   pip install -e .
-   ```
-   
-   Or with poetry:
-   ```bash
-   poetry install
-   ```
+✅ **Performance cao:** Cache tối ưu, batch processing
 
-3. **Get an Alchemy API key** from https://www.alchemy.com/
+---
 
-4. **Configure your RPC URL:**
-   
-   Option A - Environment variable:
-   ```bash
-   export ALCHEMY_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
-   ```
-   
-   Option B - Create a `.env` file:
-   ```
-   ALCHEMY_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
-   ```
+## 📦 Cài đặt
 
-### Optional: Install pyrevm for Enhanced Simulation
+### Yêu cầu
+
+- **Python**: 3.10 trở lên
+- **RPC URL**: Alchemy/Infura/Ankr (Free tier OK)
+- **PyRevm**: 0.3.0+ (optional, cài để tăng tốc)
+
+### Cài đặt nhanh
 
 ```bash
-# For faster local simulation (optional, not required)
-pip install pyrevm
+# Clone hoặc download repository
+cd mev-inspect-pyrevm
+
+# Cài đặt package
+pip install -e .
+
+# Hoặc dùng từ PyPI (nếu đã publish)
+pip install mev-inspect-pyrevm
 ```
 
-> **Note**: The tool works without pyrevm using RPC calls, but pyrevm provides faster local simulation.
-
----
-
-## 🚀 Quick Start
-
-### Basic Commands
+### Cài đặt PyRevm (Optional)
 
 ```bash
-# Inspect a single block
-mev-inspect block 12914944
-
-# Inspect a range of blocks
-mev-inspect range 12914940 12914950
-
-# Include what-if analysis for missed opportunities
-mev-inspect block 12914944 --what-if
-
-# Generate a report
-mev-inspect block 12914944 --report result.json
+# Cài PyRevm để replay transactions nhanh hơn
+pip install pyrevm>=0.3.0
 ```
 
----
+> **Lưu ý**: Không có PyRevm vẫn hoạt động bình thường, chỉ chậm hơn một chút.
 
-## 📊 Report Modes
+### Cấu hình RPC
 
-MEV Inspector supports **2 report modes** to fit different use cases:
-
-### 1. 🎯 Basic Mode (`--report-mode basic`)
-
-**Compact report focusing only on MEV findings** - perfect for quick analysis!
-
-#### Features:
-- ✅ Only MEV opportunities (arbitrages & sandwiches)
-- ✅ Clean, easy-to-read format
-- ✅ Profit calculations with gas costs
-- ✅ Swap paths for arbitrages
-- ✅ Frontrun/backrun details for sandwiches
-- ❌ No raw transaction data
-- ❌ No complete swap lists
-
-#### Output Structure:
-```json
-{
-  "block_number": 12914944,
-  "mev_summary": {
-    "total_mev_profit_eth": 0.53560707,
-    "arbitrages_found": 2,
-    "arbitrage_profit_eth": 0.53560707,
-    "sandwiches_found": 0,
-    "sandwich_profit_eth": 0.0,
-    "whatif_opportunities": 0
-  },
-  "arbitrages": [
-    {
-      "id": "arb_1",
-      "transaction_hash": "0xbb7fd3d6-3e2b-45f3-b174-63b44f5c7ed4",
-      "profit_token_address": "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
-      "block_number": 12914944,
-      "profit_eth": 0.53560707,
-      "gas_cost_eth": 0.0,
-      "net_profit_eth": 0.53560707,
-      "swap_path": [...]
-    }
-  ],
-  "sandwiches": [],
-  "whatif_opportunities": []
-}
-```
-
-#### Example Usage:
-```bash
-# Single block
-mev-inspect block 12914944 --report result_basic.json --report-mode basic
-
-# Range of blocks
-mev-inspect range 12914940 12914950 --report results_basic.json --report-mode basic
-
-# With what-if analysis
-mev-inspect block 12914944 --what-if --report result_basic.json --report-mode basic
-```
-
----
-
-### 2. 📋 Full Mode (`--report-mode full`) - Default
-
-**Complete report with all transaction details** - for deep analysis!
-
-#### Features:
-- ✅ All transactions in the block
-- ✅ Detailed logs and events
-- ✅ Swap event detection info
-- ✅ Transaction status (success/failed)
-- ✅ Gas usage details
-- ✅ All parsed swaps from DEX protocols
-- ✅ MEV findings (arbitrages & sandwiches)
-
-#### Output Structure:
-```json
-{
-  "block_number": 12914944,
-  "summary": {
-    "total_transactions": 222,
-    "successful_transactions": 186,
-    "failed_transactions": 36,
-    "total_logs": 308,
-    "swap_events_detected": 42,
-    "swaps_parsed": 42,
-    "arbitrages_found": 2,
-    "sandwiches_found": 0,
-    "whatif_opportunities": 0
-  },
-  "transactions": [...],      // All 222 transactions
-  "all_swaps": [...],          // All 42 parsed swaps
-  "historical_arbitrages": [...],
-  "historical_sandwiches": [...],
-  "whatif_opportunities": [...]
-}
-```
-
-#### Example Usage:
-```bash
-# Full mode (default)
-mev-inspect block 12914944 --report result_full.json --report-mode full
-
-# Or simply (full is default)
-mev-inspect block 12914944 --report result_full.json
-```
-
----
-
-### 📊 Mode Comparison
-
-| Feature | Basic Mode | Full Mode |
-|---------|------------|-----------|
-| MEV Findings | ✅ | ✅ |
-| MEV Summary | ✅ | ✅ |
-| All Transactions | ❌ | ✅ |
-| Transaction Details | ❌ | ✅ |
-| All Swaps | ❌ | ✅ |
-| Event Logs | ❌ | ✅ |
-| File Size | 📦 Small | 📦📦📦 Large |
-| Readability | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
-
-### 💡 When to Use Each Mode?
-
-**Use Basic Mode when:**
-- 🎯 You only care about MEV opportunities
-- 📦 You need compact reports for quick analysis
-- 📤 You want to share findings with others
-- 🔄 You're scanning many blocks and only want MEV data
-
-**Use Full Mode when:**
-- 🐛 You need to debug and analyze in detail
-- 🔍 You want to see all block activity
-- 📈 You're researching swap patterns
-- ✅ You need to validate detection algorithms
-
----
-
-## 🔧 Advanced Usage
-
-### Test Script
-
-Run both modes and compare:
+**Cách 1: Environment variable**
 
 ```bash
-# Make script executable
-chmod +x test_report_modes.sh
-
-# Run tests
-./test_report_modes.sh
-
-# Compare file sizes
-ls -lh result_basic.json result_full.json
+export ALCHEMY_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY"
 ```
 
-### Working with Reports
+**Cách 2: File `.env`**
 
 ```bash
-# Pretty print basic report
-cat result_basic.json | python -m json.tool
-
-# Count arbitrages (requires jq)
-cat result_basic.json | jq '.arbitrages | length'
-
-# Get total MEV profit
-cat result_basic.json | jq '.mev_summary.total_mev_profit_eth'
-
-# List all arbitrage transaction hashes
-cat result_basic.json | jq '.arbitrages[].transaction_hash'
+# Tạo file .env
+echo 'ALCHEMY_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY' > .env
 ```
 
-### Range Analysis
+Lấy API key miễn phí tại: https://www.alchemy.com/
+
+---
+
+## 🚀 Sử dụng
+
+### 1. Sử dụng Python API
+
+```python
+from mev_inspect import RPCClient, StateManager, EnhancedSwapDetector, ProfitCalculator
+
+# Kết nối RPC
+rpc = RPCClient("https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY")
+
+# Phân tích transaction
+tx_hash = "0x5e1657ef0e9be9bc72efefe59a2528d0d730d478cfc9e6cdd09af9f997bb3ef4"
+tx = rpc.get_transaction(tx_hash)
+block_number = tx['blockNumber']
+
+# Khởi tạo StateManager với cache
+state = StateManager(rpc, block_number)
+
+# Phát hiện swaps
+detector = EnhancedSwapDetector(rpc, state)
+swaps = detector.detect_swaps(tx_hash, block_number)
+
+print(f"Found {len(swaps)} swaps:")
+for swap in swaps:
+    print(f"  {swap.protocol}: {swap.token_in_symbol} → {swap.token_out_symbol}")
+    print(f"  Amount: {swap.amount_in_readable:.4f} → {swap.amount_out_readable:.4f}")
+
+# Tính profit (nếu có arbitrage)
+calculator = ProfitCalculator(rpc, state)
+profit = calculator.calculate_profit(tx_hash, block_number)
+if profit:
+    print(f"Profit: {profit['net_profit_eth']:.6f} ETH")
+```
+
+### 2. Sử dụng CLI
 
 ```bash
-# Scan multiple blocks with basic mode
-mev-inspect range 12914940 12914950 --report-mode basic --report mev_findings.json
+# Phân tích 1 transaction
+python -m mev_inspect.cli analyze-tx \
+  --tx-hash 0x5e1657ef0e9be9bc72efefe59a2528d0d730d478cfc9e6cdd09af9f997bb3ef4 \
+  --rpc-url https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
 
-# Output contains:
-# - blocks: array of per-block basic reports
-# - aggregated: consolidated MEV findings
+# Phân tích 1 block
+python -m mev_inspect.cli analyze-block \
+  --block-number 18500000 \
+  --rpc-url https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+
+# Phân tích block range
+python -m mev_inspect.cli analyze-range \
+  --start-block 18500000 \
+  --end-block 18500010 \
+  --rpc-url https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY \
+  --output results.json
+```
+
+### 3. Batch Processing
+
+```python
+from mev_inspect import RPCClient, StateManager, EnhancedSwapDetector
+
+rpc = RPCClient("YOUR_RPC_URL")
+
+# Phân tích nhiều transactions
+tx_hashes = [
+    "0x5e1657ef0e9be9bc72efefe59a2528d0d730d478cfc9e6cdd09af9f997bb3ef4",
+    "0x...",
+]
+
+for tx_hash in tx_hashes:
+    try:
+        tx = rpc.get_transaction(tx_hash)
+        state = StateManager(rpc, tx['blockNumber'])
+        detector = EnhancedSwapDetector(rpc, state)
+        swaps = detector.detect_swaps(tx_hash, tx['blockNumber'])
+        
+        print(f"{tx_hash}: {len(swaps)} swaps")
+    except Exception as e:
+        print(f"{tx_hash}: Error - {e}")
 ```
 
 ---
 
-## 🏗️ Architecture
+## 📚 API Documentation
 
+### RPCClient
+
+Client để giao tiếp với Ethereum RPC.
+
+```python
+from mev_inspect import RPCClient
+
+rpc = RPCClient(rpc_url: str)
+
+# Methods
+rpc.get_block(block_number, full_transactions=True)
+rpc.get_transaction(tx_hash)
+rpc.get_transaction_receipt(tx_hash)
+rpc.get_code(address, block_number=None)
+rpc.get_balance(address, block_number)
+rpc.get_storage_at(address, position, block_number)
+rpc.get_latest_block_number()
 ```
-mev-inspect-pyrevm/
-├── mev_inspect/
-│   ├── cli.py              # Click-based CLI interface
-│   ├── rpc.py              # RPC client for Alchemy (no trace support)
-│   ├── simulator.py        # PyRevm integration for state simulation
-│   ├── inspector.py        # Main MEV inspection engine
-│   ├── models.py           # Data models (Arbitrage, Sandwich, etc.)
-│   ├── dex/                # DEX contract interfaces and parsers
-│   │   ├── uniswap_v2.py
-│   │   ├── uniswap_v3.py
-│   │   ├── balancer.py
-│   │   ├── sushiswap.py
-│   │   └── curve.py
-│   ├── detectors/          # MEV detection algorithms
-│   │   ├── arbitrage.py
-│   │   └── sandwich.py
-│   └── reporters/          # Report generation
-│       ├── basic_reporter.py   # Basic mode reporter
-│       ├── json_reporter.py    # Full mode reporter
-│       └── markdown_reporter.py
+
+### StateManager
+
+Cache layer để giảm RPC calls.
+
+```python
+from mev_inspect import StateManager
+
+state = StateManager(
+    rpc_client,
+    block_number,
+    account_cache_size=5000,   # Cache cho accounts
+    storage_cache_size=20000,  # Cache cho storage slots
+    code_cache_size=1000       # Cache cho contract code
+)
+
+# Methods
+state.get_account(address)  # {balance: int, code: bytes}
+state.get_code(address)     # bytes
+state.get_storage(address, slot)  # bytes
+state.get_stats()          # Cache statistics
+```
+
+### EnhancedSwapDetector
+
+Phát hiện swaps từ transaction logs và traces.
+
+```python
+from mev_inspect import EnhancedSwapDetector
+
+detector = EnhancedSwapDetector(rpc_client, state_manager)
+
+swaps = detector.detect_swaps(
+    tx_hash: str,
+    block_number: int,
+    use_replay: bool = True  # Dùng PyRevm replay nếu có
+)
+
+# Swap object
+swap.protocol          # "uniswap_v2", "uniswap_v3", etc.
+swap.token_in_symbol   # "WETH"
+swap.token_out_symbol  # "USDC"
+swap.amount_in         # Raw amount (int)
+swap.amount_out        # Raw amount (int)
+swap.amount_in_readable   # Human readable (float)
+swap.amount_out_readable  # Human readable (float)
+swap.pool_address      # Pool contract address
+swap.sender            # Transaction sender
+```
+
+### ProfitCalculator
+
+Tính toán lợi nhuận MEV.
+
+```python
+from mev_inspect import ProfitCalculator
+
+calculator = ProfitCalculator(rpc_client, state_manager)
+
+profit = calculator.calculate_profit(tx_hash, block_number)
+
+# Profit object
+profit['gross_profit_eth']  # Lợi nhuận trước gas
+profit['gas_cost_eth']      # Chi phí gas
+profit['net_profit_eth']    # Lợi nhuận sau gas
+profit['profit_usd']        # Lợi nhuận USD (nếu có price)
+profit['swaps']             # List các swaps
 ```
 
 ---
 
-## 📝 Examples
+## 🔧 Configuration
 
-### Example 1: Quick MEV Check
+### Cache Settings
+
+Tùy chỉnh cache size theo nhu cầu:
+
+```python
+# Small workload (ít RPC calls)
+state = StateManager(rpc, block_number,
+    account_cache_size=1000,
+    storage_cache_size=5000,
+    code_cache_size=500
+)
+
+# Large workload (nhiều transactions)
+state = StateManager(rpc, block_number,
+    account_cache_size=10000,
+    storage_cache_size=50000,
+    code_cache_size=2000
+)
+```
+
+### RPC Settings
+
+```python
+# Timeout configuration (nếu RPC chậm)
+from web3 import Web3, HTTPProvider
+
+provider = HTTPProvider(
+    rpc_url,
+    request_kwargs={'timeout': 60}  # 60 seconds
+)
+w3 = Web3(provider)
+```
+
+---
+
+## 📖 Examples
+
+### Example 1: Tìm MEV trong 1 block
+
+```python
+from mev_inspect import RPCClient, StateManager, EnhancedSwapDetector, ProfitCalculator
+
+rpc = RPCClient("YOUR_RPC_URL")
+block_number = 18500000
+
+# Lấy tất cả transactions trong block
+block = rpc.get_block(block_number)
+
+print(f"Block {block_number}: {len(block['transactions'])} transactions")
+
+# Phân tích từng transaction
+state = StateManager(rpc, block_number)
+detector = EnhancedSwapDetector(rpc, state)
+calculator = ProfitCalculator(rpc, state)
+
+mev_txs = []
+for tx in block['transactions']:
+    tx_hash = tx['hash'].hex() if hasattr(tx['hash'], 'hex') else tx['hash']
+    
+    swaps = detector.detect_swaps(tx_hash, block_number)
+    if len(swaps) > 0:
+        profit = calculator.calculate_profit(tx_hash, block_number)
+        if profit and profit['net_profit_eth'] > 0:
+            mev_txs.append({
+                'tx_hash': tx_hash,
+                'swaps': len(swaps),
+                'profit_eth': profit['net_profit_eth']
+            })
+
+print(f"\nFound {len(mev_txs)} MEV transactions")
+for tx in sorted(mev_txs, key=lambda x: x['profit_eth'], reverse=True):
+    print(f"  {tx['tx_hash']}: {tx['profit_eth']:.6f} ETH ({tx['swaps']} swaps)")
+```
+
+### Example 2: Monitor real-time
+
+```python
+import time
+from mev_inspect import RPCClient, StateManager, EnhancedSwapDetector
+
+rpc = RPCClient("YOUR_RPC_URL")
+
+print("Monitoring for MEV opportunities...")
+
+last_block = rpc.get_latest_block_number()
+
+while True:
+    current_block = rpc.get_latest_block_number()
+    
+    if current_block > last_block:
+        print(f"\nNew block: {current_block}")
+        
+        state = StateManager(rpc, current_block)
+        detector = EnhancedSwapDetector(rpc, state)
+        
+        block = rpc.get_block(current_block)
+        for tx in block['transactions']:
+            tx_hash = tx['hash'].hex() if hasattr(tx['hash'], 'hex') else tx['hash']
+            swaps = detector.detect_swaps(tx_hash, current_block)
+            
+            if len(swaps) > 0:
+                print(f"  MEV: {tx_hash} - {len(swaps)} swaps")
+        
+        last_block = current_block
+    
+    time.sleep(12)  # Ethereum block time ~12s
+```
+
+---
+
+## 🧪 Testing
+
+Project đã có test suite hoàn chỉnh:
+
 ```bash
-# Check for MEV in recent block
-mev-inspect block 12914944 --report-mode basic --report mev.json
+# Run all tests
+pytest tests/
+
+# Run specific test
+pytest tests/test_phase3_enhanced_detector.py -v
+
+# Run with coverage
+pytest --cov=mev_inspect tests/
 ```
 
-### Example 2: Deep Analysis
+---
+
+## 📊 Performance
+
+### Cache Efficiency
+
+StateManager cache giúp giảm ~90% RPC calls:
+
+```python
+state = StateManager(rpc, block_number)
+
+# Analyze 100 transactions trong cùng 1 block
+for i in range(100):
+    state.get_account("0x..." )  # Chỉ 1 RPC call, 99 lần còn lại hit cache
+
+stats = state.get_stats()
+print(f"Cache hit rate: {stats['account_hits'] / (stats['account_hits'] + stats['account_misses']) * 100:.1f}%")
+```
+
+### Benchmark
+
+Trên Alchemy Free Tier:
+- **1 transaction**: ~2-5 seconds
+- **1 block (100 txs)**: ~60-120 seconds  
+- **10 blocks**: ~10-15 minutes
+
+Với PyRevm installed: nhanh hơn ~30-40%.
+
+---
+
+## 🐛 Troubleshooting
+
+### Import Error: PyRevm
+
+```
+ImportError: PyRevm is required for transaction replay
+```
+
+**Giải pháp**: Cài PyRevm hoặc tắt replay mode
+
 ```bash
-# Full analysis with what-if scenarios
-mev-inspect block 12914944 --what-if --report full_analysis.json --report-mode full --verbose
+# Option 1: Install PyRevm
+pip install pyrevm>=0.3.0
+
+# Option 2: Disable replay
+detector = EnhancedSwapDetector(rpc, state)
+swaps = detector.detect_swaps(tx_hash, block_number, use_replay=False)
 ```
 
-### Example 3: Historical Scan
+### RPC Connection Failed
+
+```
+ConnectionError: Failed to connect to RPC
+```
+
+**Giải pháp**: Kiểm tra RPC URL và API key
+
 ```bash
-# Scan 100 blocks for MEV opportunities
-mev-inspect range 12914900 12915000 --report-mode basic --report historical_mev.json
+# Test RPC connection
+curl -X POST YOUR_RPC_URL \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
 ```
 
----
+### Cache Size Too Small
 
-## 🔍 Understanding the Output
+```
+# Nếu thấy cache hit rate thấp
+stats = state.get_stats()
+print(stats)
 
-### Arbitrage Detection
-
-Arbitrages are detected when:
-1. Multiple swaps occur in the same transaction
-2. The swaps form a cycle (start and end with same token)
-3. Net profit is positive after accounting for gas
-
-### Sandwich Detection
-
-Sandwiches are detected when:
-1. Frontrun transaction occurs before victim's swap
-2. Victim transaction executes
-3. Backrun transaction occurs after victim's swap
-4. Same address controls frontrun and backrun
-5. Net profit is positive
-
----
-
-## ⚠️ Important Notes
-
-- ✅ Works with Alchemy Free Tier (no trace API required)
-- ✅ Historical MEV detection analyzes swaps that actually occurred
-- ✅ What-if analysis simulates missed opportunities
-- ✅ Reports are generated in JSON format
-- ✅ Gas costs are automatically calculated when possible
-- ⚠️ Some DEX protocols may not be fully supported yet
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Areas for improvement:
-- Additional DEX protocol support
-- More sophisticated MEV detection algorithms
-- Performance optimizations
-- Better visualization tools
+# Tăng cache size
+state = StateManager(rpc, block_number,
+    account_cache_size=10000,  # Increase
+    storage_cache_size=50000,  # Increase
+    code_cache_size=2000       # Increase
+)
+```
 
 ---
 
 ## 📄 License
 
-MIT
+MIT License - xem file [LICENSE](LICENSE) để biết thêm chi tiết.
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Please:
+
+1. Fork repository
+2. Create feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open Pull Request
+
+---
+
+## 📞 Support
+
+- **Issues**: [GitHub Issues](https://github.com/YOUR_USERNAME/mev-inspect-pyrevm/issues)
+- **Documentation**: [docs/PRODUCTION_GUIDE.md](docs/PRODUCTION_GUIDE.md)
+- **Quick Start**: [docs/DEPLOYMENT_QUICK_START.md](docs/DEPLOYMENT_QUICK_START.md)
 
 ---
 
 ## 🙏 Acknowledgments
 
-- Built with [pyrevm](https://github.com/bluealloy/pyrevm) for EVM simulation
-- Uses [Alchemy](https://www.alchemy.com/) for Ethereum RPC access
-- Inspired by [mev-inspect-py](https://github.com/flashbots/mev-inspect-py)
+- [PyRevm](https://github.com/paradigmxyz/pyrevm) - EVM simulation
+- [mev-inspect-py](https://github.com/flashbots/mev-inspect-py) - Original inspiration
+- [Web3.py](https://github.com/ethereum/web3.py) - Ethereum Python library
 
+---
+
+**Built with ❤️ for the Ethereum MEV research community**
