@@ -1,0 +1,149 @@
+================================================================================
+REPOSITORY ANALYSIS FOR PRODUCTION DEPLOYMENT
+================================================================================
+
+📦 PRODUCTION FILES (Deploy these)
+--------------------------------------------------------------------------------
+
+DOCUMENTATION:
+  Files: 2
+  Size: 21.5 KB
+  Lines: 863
+    • README.md (369 lines)
+    • README_PRODUCTION.md (494 lines)
+
+OTHER:
+  Files: 8
+  Size: 24.2 KB
+  Lines: 386
+    • ANALYZE_REPO.py (226 lines)
+    • CLEANUP_FOR_PRODUCTION.fish (160 lines)
+    • mev_inspect_pyrevm.egg-info/dependency_links.txt
+    • mev_inspect_pyrevm.egg-info/requires.txt
+    • mev_inspect_pyrevm.egg-info/top_level.txt
+    • mev_inspect_pyrevm.egg-info/SOURCES.txt
+    • mev_inspect_pyrevm.egg-info/PKG-INFO
+    • mev_inspect_pyrevm.egg-info/entry_points.txt
+
+PRODUCTION CODE:
+  Files: 24
+  Size: 154.8 KB
+  Lines: 4286
+    • mev_inspect/inspector.py (240 lines)
+    • mev_inspect/replay.py (516 lines)
+    • mev_inspect/enhanced_swap_detector.py (634 lines)
+    • mev_inspect/state_manager.py (172 lines)
+    • mev_inspect/models.py (313 lines)
+    • mev_inspect/profit_calculator.py (545 lines)
+    • mev_inspect/rpc.py (67 lines)
+    • mev_inspect/simulator.py (311 lines)
+    • mev_inspect/cli.py (321 lines)
+    • mev_inspect/__init__.py (4 lines)
+    • mev_inspect/detectors/sandwich.py (136 lines)
+    • mev_inspect/detectors/arbitrage.py (252 lines)
+    • mev_inspect/detectors/__init__.py (7 lines)
+    • mev_inspect/dex/base.py (44 lines)
+    • mev_inspect/dex/curve.py (41 lines)
+    • mev_inspect/dex/sushiswap.py (20 lines)
+    • mev_inspect/dex/uniswap_v3.py (181 lines)
+    • mev_inspect/dex/__init__.py (16 lines)
+    • mev_inspect/dex/balancer.py (41 lines)
+    • mev_inspect/dex/uniswap_v2.py (198 lines)
+    • mev_inspect/reporters/markdown_reporter.py (70 lines)
+    • mev_inspect/reporters/basic_reporter.py (122 lines)
+    • mev_inspect/reporters/json_reporter.py (27 lines)
+    • mev_inspect/reporters/__init__.py (8 lines)
+
+PRODUCTION DOCS:
+  Files: 2
+  Size: 26.9 KB
+  Lines: 1156
+    • docs/PRODUCTION_GUIDE.md (711 lines)
+    • docs/DEPLOYMENT_QUICK_START.md (445 lines)
+
+📊 Production Total: 36 files, 227.4 KB, 6691 lines
+
+🗑️  DEVELOPMENT FILES (Remove before deploy)
+--------------------------------------------------------------------------------
+
+DEV SCRIPTS:
+  Files: 26
+  Size: 178.3 KB
+  Lines: 5910
+    • test_output_fixed.txt
+    • test_output2.txt
+    • check_pyrevm.py (37 lines)
+    • clean_for_production.fish (175 lines)
+    • full_test_result.txt
+    ... and 21 more files
+
+EXAMPLES:
+  Files: 12
+  Size: 158.0 KB
+  Lines: 4720
+    • examples/demo_phase4_profit.py (299 lines)
+    • examples/demo_phase2_replay.py (313 lines)
+    • examples/demo_mev_finder.py (412 lines)
+    • examples/test_pyrevm_real.py (460 lines)
+    • examples/README.md (435 lines)
+    ... and 7 more files
+
+REPORTS:
+  Files: 2
+  Size: 167.9 KB
+  Lines: 0
+    • reports/basic.json
+    • reports/full.json
+
+TEST OUTPUT:
+  Files: 7
+  Size: 19.7 KB
+  Lines: 0
+    • pyrevm_api.txt
+    • PRODUCTION_ANALYSIS.json
+    • pyrevm_check.txt
+    • final_test.txt
+    • deployment_analysis.json
+    ... and 2 more files
+
+TESTS:
+  Files: 6
+  Size: 61.5 KB
+  Lines: 2066
+    • tests/test_phase3_enhanced_detector.py (504 lines)
+    • tests/test_phase2_replay.py (371 lines)
+    • tests/test_state_manager.py (61 lines)
+    • tests/test_phase1_integration.py (298 lines)
+    • tests/test_phase4_profit_calculator.py (462 lines)
+    ... and 1 more files
+
+📊 Development Total: 53 files, 585.5 KB, 12696 lines
+
+⚙️  CONFIGURATION FILES (Keep)
+--------------------------------------------------------------------------------
+  • pyproject.toml
+
+📊 Config Total: 1 files
+
+================================================================================
+SUMMARY
+================================================================================
+Current size: 812.9 KB (19387 lines)
+Production size: 227.4 KB (6691 lines)
+Development size: 585.5 KB (12696 lines)
+Size reduction: 72.0%
+
+✅ Deploy: 36 files
+🗑️  Remove: 53 files
+⚙️  Config: 1 files
+
+================================================================================
+
+Next steps:
+  1. Run: fish CLEANUP_FOR_PRODUCTION.fish
+  2. Replace README.md with README_PRODUCTION.md
+  3. Build: python3 -m build
+  4. Deploy to production
+
+💾 Detailed analysis saved to: PRODUCTION_ANALYSIS.json
+
