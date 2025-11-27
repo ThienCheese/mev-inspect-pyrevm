@@ -65,6 +65,9 @@ class StateManager:
         self.account_cache = LRUCache(maxsize=account_cache_size)
         self.storage_cache = LRUCache(maxsize=storage_cache_size)
         self.code_cache = LRUCache(maxsize=code_cache_size)
+        
+        # Pool tokens cache for batch optimization (pool_address -> {"token0": addr, "token1": addr})
+        self.pool_tokens_cache: Dict[str, Dict[str, str]] = {}
 
         # simple stats
         self._stats = {
