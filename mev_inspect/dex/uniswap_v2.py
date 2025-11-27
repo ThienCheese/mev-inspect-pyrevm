@@ -163,7 +163,12 @@ class UniswapV2Parser(DEXParser):
         return amount_out
 
     def _get_token0(self, pool_address: str, block_number: int) -> str:
-        """Get token0 address from pool."""
+        """Get token0 address from pool (with caching)."""
+        # Check cache first (if available)
+        cache_key = f"{pool_address.lower()}_token0"
+        if hasattr(self, '_token_cache') and cache_key in self._token_cache:
+            return self._token_cache[cache_key]
+        
         try:
             result = self.rpc_client.call(
                 pool_address,
@@ -173,14 +178,25 @@ class UniswapV2Parser(DEXParser):
             if result and len(result) >= 32:
                 # Extract last 20 bytes (40 hex chars) for address
                 address_bytes = result[-20:] if len(result) >= 20 else result
-                return to_checksum_address("0x" + address_bytes.hex())
+                token = to_checksum_address("0x" + address_bytes.hex())
+                
+                # Cache result
+                if not hasattr(self, '_token_cache'):
+                    self._token_cache = {}
+                self._token_cache[cache_key] = token
+                return token
         except Exception as e:
             # Silently fail - token address might not be retrievable
             pass
         return ""
 
     def _get_token1(self, pool_address: str, block_number: int) -> str:
-        """Get token1 address from pool."""
+        """Get token1 address from pool (with caching)."""
+        # Check cache first (if available)
+        cache_key = f"{pool_address.lower()}_token1"
+        if hasattr(self, '_token_cache') and cache_key in self._token_cache:
+            return self._token_cache[cache_key]
+        
         try:
             result = self.rpc_client.call(
                 pool_address,
@@ -190,7 +206,13 @@ class UniswapV2Parser(DEXParser):
             if result and len(result) >= 32:
                 # Extract last 20 bytes (40 hex chars) for address
                 address_bytes = result[-20:] if len(result) >= 20 else result
-                return to_checksum_address("0x" + address_bytes.hex())
+                token = to_checksum_address("0x" + address_bytes.hex())
+                
+                # Cache result
+                if not hasattr(self, '_token_cache'):
+                    self._token_cache = {}
+                self._token_cache[cache_key] = token
+                return token
         except Exception as e:
             # Silently fail - token address might not be retrievable
             pass

@@ -114,11 +114,15 @@ class TransactionReplayer:
         )
         self.evm.set_block_env(block_env)
     
-    def load_account_state(self, address: str):
+    def load_account_state(self, address: str, storage_slots: list = None):
         """Load account state from StateManager into PyRevm.
         
         This loads the account's balance, nonce, code, and storage
         to ensure accurate replay.
+        
+        Args:
+            address: Address to load
+            storage_slots: Optional list of storage slots to preload
         """
         # Get account data from StateManager (cached)
         account_data = self.state_manager.get_account(address)
@@ -134,24 +138,118 @@ class TransactionReplayer:
         
         # Insert into EVM
         self.evm.insert_account_info(address, account_info)
+        
+        # Load storage slots if provided or if it's a known contract type
+        storage = {}
+        if storage_slots:
+            for slot in storage_slots:
+                value = self.state_manager.get_storage(address, slot)
+                storage[slot] = value
+        elif code:
+            # Auto-detect contract type and load critical storage
+            storage = self._load_contract_storage(address, code)
+        
+        # Insert storage into PyRevm
+        for slot, value in storage.items():
+            try:
+                # PyRevm storage insertion (API may vary by version)
+                self.evm.insert_account_storage(address, slot, value)
+            except AttributeError:
+                # Older PyRevm versions may not support this
+                pass
     
-    def preload_transaction_state(self, tx: Dict[str, Any]):
+    def _load_contract_storage(self, address: str, code: bytes) -> dict:
+        """Load critical storage slots based on contract type.
+        
+        Args:
+            address: Contract address
+            code: Contract bytecode
+            
+        Returns:
+            Dictionary of slot -> value mappings
+        """
+        storage = {}
+        
+        # Check for ERC20 (has transfer function selector)
+        if b"\xa9\x05\x9c\xbb" in code:  # transfer(address,uint256)
+            # ERC20: typically slot 0 is totalSupply
+            # Balances are in mapping (computed slots)
+            # For now, we'll load on-demand during execution
+            pass
+        
+        # Check for UniswapV2 Pool (has getReserves function)
+        if b"\x09\x02\xf1\xac" in code:  # getReserves()
+            # UniswapV2 storage layout:
+            # Slot 6: token0
+            # Slot 7: token1
+            # Slot 8: reserve0, reserve1, blockTimestampLast (packed)
+            for slot in [6, 7, 8]:
+                try:
+                    value = self.state_manager.get_storage(address, slot)
+                    storage[slot] = value
+                except Exception:
+                    pass
+        
+        # Check for UniswapV3 Pool (has slot0 function)
+        if b"\x38\x50\xc7\xbd" in code:  # slot0()
+            # UniswapV3 storage layout:
+            # Slot 0: slot0 struct (sqrtPriceX96, tick, etc.)
+            # Slot 4: liquidity
+            for slot in [0, 4]:
+                try:
+                    value = self.state_manager.get_storage(address, slot)
+                    storage[slot] = value
+                except Exception:
+                    pass
+        
+        return storage
+    
+    def preload_transaction_state(self, tx: Dict[str, Any], receipt: Dict[str, Any] = None):
         """Preload all accounts that will be accessed during transaction.
         
         This loads the transaction sender, receiver, and any known
         contract addresses to avoid missing state during replay.
+        
+        Args:
+            tx: Transaction data
+            receipt: Optional transaction receipt (to extract addresses from logs)
         """
         addresses_to_load = set()
         
         # Add transaction participants
         if tx.get("from"):
-            addresses_to_load.add(tx["from"])
+            addresses_to_load.add(tx["from"].lower())
         if tx.get("to"):
-            addresses_to_load.add(tx["to"])
+            addresses_to_load.add(tx["to"].lower())
+        
+        # Extract addresses from logs if receipt provided
+        if receipt:
+            for log in receipt.get("logs", []):
+                # Add log emitter address
+                addresses_to_load.add(log["address"].lower())
+                
+                # Extract addresses from indexed topics (for Transfer events, etc.)
+                for topic in log.get("topics", [])[1:]:  # Skip event signature
+                    if isinstance(topic, bytes) and len(topic) == 32:
+                        # Could be address (last 20 bytes)
+                        addr = "0x" + topic.hex()[-40:]
+                        addresses_to_load.add(addr.lower())
+                    elif isinstance(topic, str) and len(topic) == 66:  # 0x + 64 hex chars
+                        # Extract address from padded topic
+                        addr = "0x" + topic[-40:]
+                        addresses_to_load.add(addr.lower())
         
         # Load all addresses into EVM
+        loaded_count = 0
         for address in addresses_to_load:
-            self.load_account_state(address)
+            try:
+                self.load_account_state(address)
+                loaded_count += 1
+            except Exception as e:
+                # Log error but continue
+                pass
+        
+        return loaded_count
     
     def replay_transaction(self, tx_hash: str) -> ReplayResult:
         """Replay a transaction and extract internal calls and state changes.
@@ -166,8 +264,20 @@ class TransactionReplayer:
         tx = self.rpc_client.get_transaction(tx_hash)
         receipt = self.rpc_client.get_transaction_receipt(tx_hash)
         
-        # Preload state
-        self.preload_transaction_state(tx)
+        return self.replay_transaction_with_data(tx, receipt)
+    
+    def replay_transaction_with_data(self, tx: dict, receipt: dict) -> ReplayResult:
+        """Replay a transaction with pre-fetched data (NO RPC CALLS).
+        
+        Args:
+            tx: Transaction data (already fetched)
+            receipt: Transaction receipt (already fetched)
+            
+        Returns:
+            ReplayResult containing execution details, internal calls, and state changes
+        """
+        # Preload state (now includes addresses from logs)
+        loaded_count = self.preload_transaction_state(tx, receipt)
         
         # Prepare transaction parameters
         caller = tx.get("from", "0x0000000000000000000000000000000000000000")

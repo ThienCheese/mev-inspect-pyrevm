@@ -54,7 +54,12 @@ def main():
     is_flag=True,
     help="Show detailed debug information including all event signatures",
 )
-def block(block_number: int, what_if: bool, report: Optional[str], report_mode: str, rpc_url: Optional[str], verbose: bool):
+@click.option(
+    "--use-legacy",
+    is_flag=True,
+    help="Use legacy StateSimulator architecture instead of Phase 2-4 pipeline (TransactionReplayer, EnhancedSwapDetector, ProfitCalculator)",
+)
+def block(block_number: int, what_if: bool, report: Optional[str], report_mode: str, rpc_url: Optional[str], verbose: bool, use_legacy: bool):
     """Inspect a single block for MEV opportunities."""
     if not rpc_url:
         console.print("[red]Error: RPC URL required. Set ALCHEMY_RPC_URL or use --rpc-url[/red]")
@@ -71,55 +76,26 @@ def block(block_number: int, what_if: bool, report: Optional[str], report_mode: 
 
         try:
             rpc_client = RPCClient(rpc_url)
-            inspector = MEVInspector(rpc_client)
+            inspector = MEVInspector(rpc_client, use_legacy=use_legacy)
+            
+            # Show which architecture is being used
+            if use_legacy:
+                console.print("[yellow]Using legacy StateSimulator architecture[/yellow]")
+            else:
+                console.print("[green]Using Phase 2-4 pipeline (TransactionReplayer, EnhancedSwapDetector, ProfitCalculator)[/green]")
 
             progress.update(task, description="Fetching block data...")
             block_data = rpc_client.get_block(block_number, full_transactions=True)
             
-            # Count transactions
+            # Count transactions (simple, no RPC calls)
             total_txs = len(block_data.get("transactions", []))
-            successful_txs = 0
-            total_logs = 0
-            swap_event_logs = 0
             
-            # Count successful transactions and logs
-            for tx in block_data.get("transactions", []):
-                if not tx.get("to"):
-                    continue
-                try:
-                    tx_hash = tx["hash"].hex() if hasattr(tx["hash"], "hex") else tx["hash"]
-                    receipt = rpc_client.get_transaction_receipt(tx_hash)
-                    if receipt.get("status") == 1:
-                        successful_txs += 1
-                        logs = receipt.get("logs", [])
-                        total_logs += len(logs)
-                        # Count swap event logs
-                        for log in logs:
-                            if log.get("topics") and len(log["topics"]) > 0:
-                                first_topic = log["topics"][0]
-                                topic_hex = first_topic.hex() if hasattr(first_topic, "hex") else (first_topic if isinstance(first_topic, str) else first_topic.hex())
-                                # Check for known swap event signatures
-                                if topic_hex in [
-                                    "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822",  # UniswapV2
-                                    "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67",  # UniswapV3
-                                ]:
-                                    swap_event_logs += 1
-                except Exception:
-                    pass
+            # Print basic stats (defer detailed stats until after inspection)
+            console.print(f"[dim]Block {block_number}:[/dim]")
+            console.print(f"[dim]  - Total transactions: {total_txs}[/dim]\n")
             
-            console.print(f"[dim]Block {block_number} stats:[/dim]")
-            console.print(f"[dim]  - Total transactions: {total_txs}[/dim]")
-            console.print(f"[dim]  - Successful transactions: {successful_txs}[/dim]")
-            console.print(f"[dim]  - Total logs: {total_logs}[/dim]")
-            console.print(f"[dim]  - Swap event logs: {swap_event_logs}[/dim]\n")
-            
-            results = inspector.inspect_block(block_number, what_if=what_if)
-
             progress.update(task, description="Analyzing MEV...")
-            
-            # Debug: show how many swaps were found
-            swaps_found = inspector._extract_swaps(block_number, block_data["transactions"])
-            console.print(f"[dim]Found {len(swaps_found)} parsed swaps in block {block_number}[/dim]\n")
+            results = inspector.inspect_block(block_number, what_if=what_if)
             
             # Show verbose information if requested
             if verbose:

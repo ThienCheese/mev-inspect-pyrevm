@@ -33,6 +33,7 @@ class ArbitrageDetector:
     ) -> List[Arbitrage]:
         """Detect arbitrage that actually occurred in the block."""
         arbitrages = []
+        
 
         # Group swaps by transaction
         swaps_by_tx: Dict[str, List[Swap]] = {}
@@ -40,7 +41,8 @@ class ArbitrageDetector:
             if swap.tx_hash not in swaps_by_tx:
                 swaps_by_tx[swap.tx_hash] = []
             swaps_by_tx[swap.tx_hash].append(swap)
-
+        
+        
         # Check each transaction for arbitrage patterns
         for tx_hash, tx_swaps in swaps_by_tx.items():
             # Check all possible paths within this transaction
@@ -115,11 +117,12 @@ class ArbitrageDetector:
         # Check if swaps form a cycle (start and end with same token)
         first_swap = swaps[0]
         last_swap = swaps[-1]
+        
+        is_cycle = first_swap.token_in.lower() == last_swap.token_out.lower()
 
         # Check if we start and end with the same token (arbitrage cycle)
-        if first_swap.token_in == last_swap.token_out:
+        if is_cycle:
             # Track amounts through the path
-            current_amount = first_swap.amount_in
             current_token = first_swap.token_in
             
             # Verify the path is connected
@@ -137,18 +140,19 @@ class ArbitrageDetector:
                         return None
             
             # Calculate profit: compare first input vs last output
-            # Note: This assumes same token decimals, which may not be true
-            # In production, would need to normalize by token decimals
+            # For arbitrage cycles, we expect to get back more than we put in
             total_in = first_swap.amount_in
             total_out = last_swap.amount_out
             
-            # For now, we'll use a simple heuristic: if output > input, it's profitable
-            # This is a simplified check - proper implementation would:
-            # 1. Normalize by token decimals
-            # 2. Account for gas costs
-            # 3. Consider slippage
+            # Calculate profit ratio (independent of decimals)
+            # If profit_ratio > 1.0, it means we got more out than we put in
+            profit_ratio = total_out / total_in if total_in > 0 else 0
             
-            if total_out > total_in:
+            
+            # Consider it profitable if we get back at least 0.1% more (to account for gas)
+            MIN_PROFIT_RATIO = 1.001
+            
+            if profit_ratio >= MIN_PROFIT_RATIO:
                 # Estimate profit (simplified - assumes same decimals)
                 profit_amount = total_out - total_in
                 # Try to estimate ETH value (simplified)

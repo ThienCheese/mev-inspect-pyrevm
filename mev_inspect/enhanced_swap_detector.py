@@ -16,6 +16,9 @@ from decimal import Decimal
 
 from mev_inspect.replay import TransactionReplayer, InternalCall, ReplayResult
 from mev_inspect.state_manager import StateManager
+from mev_inspect.dex.uniswap_v2 import UniswapV2Parser
+from mev_inspect.dex.uniswap_v3 import UniswapV3Parser
+from eth_utils import to_checksum_address
 
 
 # Common DEX addresses (Ethereum mainnet)
@@ -23,10 +26,10 @@ UNISWAP_V2_ROUTER = "0x7a250d5630b4cf539739df2c5dacb4c659f2488d"
 UNISWAP_V3_ROUTER = "0xe592427a0aece92de3edee1f18e0157c05861564"
 SUSHISWAP_ROUTER = "0xd9e1ce17f2641f24ae83637ab66a2cca9c378b9f"
 
-# Event signatures
-SWAP_EVENT_V2 = "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"
-SWAP_EVENT_V3 = "0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
-TRANSFER_EVENT = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+# Event signatures (without 0x prefix for comparison)
+SWAP_EVENT_V2 = "d78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"
+SWAP_EVENT_V3 = "c42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"
+TRANSFER_EVENT = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 
 @dataclass
@@ -133,6 +136,13 @@ class EnhancedSwapDetector:
         self.use_internal_calls = use_internal_calls
         self.min_confidence = min_confidence
         
+        # Initialize DEX parsers for token enrichment
+        self.uniswap_v2_parser = UniswapV2Parser(rpc_client)
+        self.uniswap_v3_parser = UniswapV3Parser(rpc_client)
+        
+        # Token cache to avoid repeated RPC calls
+        self.token_cache: Dict[Tuple[str, int], Tuple[str, str]] = {}  # (pool, block) -> (token0, token1)
+        
         # Statistics
         self.stats = {
             "total_transactions": 0,
@@ -143,21 +153,23 @@ class EnhancedSwapDetector:
             "false_positives_filtered": 0,
         }
     
-    def detect_swaps(self, tx_hash: str, block_number: int) -> List[EnhancedSwap]:
+    def detect_swaps(self, tx_hash: str, block_number: int, receipt: Optional[Dict] = None) -> List[EnhancedSwap]:
         """Detect all swaps in a transaction using hybrid approach.
         
         Args:
             tx_hash: Transaction hash to analyze
             block_number: Block number for state loading
+            receipt: Optional pre-fetched receipt (to avoid RPC call)
             
         Returns:
             List of detected swaps with metadata
         """
         self.stats["total_transactions"] += 1
         
-        # Get transaction and receipt
+        # Get transaction and receipt (fetch if not provided)
         tx = self.rpc_client.get_transaction(tx_hash)
-        receipt = self.rpc_client.get_transaction_receipt(tx_hash)
+        if receipt is None:
+            receipt = self.rpc_client.get_transaction_receipt(tx_hash)
         
         swaps = []
         
@@ -176,7 +188,8 @@ class EnhancedSwapDetector:
                 swaps = self._detect_swaps_hybrid(
                     tx_hash,
                     receipt,
-                    replay_result
+                    replay_result,
+                    block_number
                 )
                 
                 self.stats["swaps_detected_hybrid"] += len(swaps)
@@ -184,11 +197,11 @@ class EnhancedSwapDetector:
             except Exception as e:
                 # Fallback to log-only detection
                 print(f"Warning: Replay failed, using log-only detection: {e}")
-                swaps = self._detect_swaps_from_logs(tx_hash, receipt)
+                swaps = self._detect_swaps_from_logs(tx_hash, receipt, block_number)
                 self.stats["swaps_detected_log_only"] += len(swaps)
         else:
             # Log-only detection
-            swaps = self._detect_swaps_from_logs(tx_hash, receipt)
+            swaps = self._detect_swaps_from_logs(tx_hash, receipt, block_number)
             self.stats["swaps_detected_log_only"] += len(swaps)
         
         # Filter by confidence threshold
@@ -223,7 +236,8 @@ class EnhancedSwapDetector:
         self,
         tx_hash: str,
         receipt: Dict,
-        replay_result: ReplayResult
+        replay_result: ReplayResult,
+        block_number: int
     ) -> List[EnhancedSwap]:
         """Detect swaps using hybrid approach (logs + internal calls).
         
@@ -237,6 +251,7 @@ class EnhancedSwapDetector:
             tx_hash: Transaction hash
             receipt: Transaction receipt with logs
             replay_result: Replay result with internal calls
+            block_number: Block number for token enrichment
             
         Returns:
             List of validated swaps with confidence scores
@@ -245,59 +260,55 @@ class EnhancedSwapDetector:
         
         # Step 1: Extract swap candidates from logs
         log_swaps = self._extract_swaps_from_logs(receipt)
+        print(f"[SWAP DEBUG] TX {tx_hash[:10]}... log_swaps={len(log_swaps)}")
         
         # Step 2: Extract swap candidates from internal calls
         call_swaps = self._extract_swaps_from_calls(replay_result.internal_calls)
+        print(f"[SWAP DEBUG] TX {tx_hash[:10]}... call_swaps={len(call_swaps)}, internal_calls={len(replay_result.internal_calls)}")
         
-        # Step 3: Cross-reference and merge
+        # Step 3: Cross-reference and merge with token enrichment
         # Swaps that appear in both logs and calls get higher confidence
         validated_swaps = self._cross_reference_swaps(
             tx_hash,
             log_swaps,
-            call_swaps
+            call_swaps,
+            block_number
         )
+        print(f"[SWAP DEBUG] TX {tx_hash[:10]}... validated_swaps={len(validated_swaps)}")
         
         return validated_swaps
     
     def _detect_swaps_from_logs(
         self,
         tx_hash: str,
-        receipt: Dict
+        receipt: Dict,
+        block_number: int
     ) -> List[EnhancedSwap]:
         """Detect swaps from logs only (fallback method).
         
         Args:
             tx_hash: Transaction hash
             receipt: Transaction receipt
+            block_number: Block number for token lookups
             
         Returns:
             List of swaps detected from logs
         """
         log_swaps = self._extract_swaps_from_logs(receipt)
+        print(f"  [_detect_swaps_from_logs] Extracted {len(log_swaps)} raw swap datas from logs")
         
-        # Convert to EnhancedSwap with log-only metadata
+        # Enrich each swap with token addresses
         swaps = []
-        for swap_data in log_swaps:
-            swap = EnhancedSwap(
-                tx_hash=tx_hash,
-                pool_address=swap_data["pool"],
-                protocol=swap_data.get("protocol", "Unknown"),
-                token_in=swap_data.get("token_in", ""),
-                token_out=swap_data.get("token_out", ""),
-                amount_in=swap_data.get("amount_in", 0),
-                amount_out=swap_data.get("amount_out", 0),
-                from_address=swap_data.get("from", ""),
-                to_address=swap_data.get("to", ""),
-                gas_used=0,
-                detection_method="log",
-                confidence=0.6,  # Lower confidence for log-only
-                call_depth=0,
-                is_multi_hop=False,
-                hop_count=1,
-                log_index=swap_data.get("log_index")
-            )
-            swaps.append(swap)
+        for i, swap_data in enumerate(log_swaps):
+            print(f"  [_detect_swaps_from_logs] Enriching swap {i+1}/{len(log_swaps)}: pool={swap_data.get('pool', 'N/A')[:10]}...")
+            enriched_swap = self._enrich_swap_with_tokens(swap_data, tx_hash, block_number)
+            if enriched_swap:
+                print(f"    ✅ Enriched successfully")
+                swaps.append(enriched_swap)
+            else:
+                print(f"    ❌ Enrichment failed (returned None)")
         
+        print(f"  [_detect_swaps_from_logs] Final result: {len(swaps)} swaps")
         return swaps
     
     def _extract_swaps_from_logs(self, receipt: Dict) -> List[Dict]:
@@ -317,6 +328,12 @@ class EnhancedSwapDetector:
                 continue
             
             topic0 = log["topics"][0] if isinstance(log["topics"][0], str) else log["topics"][0].hex()
+            
+            # Normalize topic0: remove 0x prefix and convert to lowercase
+            if topic0.startswith("0x"):
+                topic0 = topic0[2:].lower()
+            else:
+                topic0 = topic0.lower()
             
             # UniswapV2/Sushiswap Swap event
             if topic0 == SWAP_EVENT_V2:
@@ -340,7 +357,15 @@ class EnhancedSwapDetector:
         """
         try:
             # Decode log data
-            data = bytes.fromhex(log["data"][2:]) if log["data"].startswith("0x") else bytes.fromhex(log["data"])
+            data_hex = log["data"]
+            if hasattr(data_hex, "hex"):
+                data_hex = data_hex.hex()
+            
+            # Remove 0x prefix if present
+            if data_hex.startswith("0x"):
+                data_hex = data_hex[2:]
+            
+            data = bytes.fromhex(data_hex)
             
             if len(data) < 128:
                 return None
@@ -352,21 +377,27 @@ class EnhancedSwapDetector:
             
             # Determine swap direction
             if amount0_in > 0 and amount1_out > 0:
-                amount_in, amount_out = amount0_in, amount1_out
-                # token_in is token0, token_out is token1
+                # Swapping token0 -> token1
+                return {
+                    "pool": log["address"],
+                    "protocol": "UniswapV2",
+                    "amount_in": amount0_in,
+                    "amount_out": amount1_out,
+                    "log_index": log_index,
+                    "token_in_is_token0": True,  # token_in = token0
+                }
             elif amount1_in > 0 and amount0_out > 0:
-                amount_in, amount_out = amount1_in, amount0_out
-                # token_in is token1, token_out is token0
+                # Swapping token1 -> token0
+                return {
+                    "pool": log["address"],
+                    "protocol": "UniswapV2",
+                    "amount_in": amount1_in,
+                    "amount_out": amount0_out,
+                    "log_index": log_index,
+                    "token_in_is_token0": False,  # token_in = token1
+                }
             else:
                 return None
-            
-            return {
-                "pool": log["address"],
-                "protocol": "UniswapV2",
-                "amount_in": amount_in,
-                "amount_out": amount_out,
-                "log_index": log_index,
-            }
             
         except Exception:
             return None
@@ -379,32 +410,60 @@ class EnhancedSwapDetector:
                              uint128 liquidity, int24 tick)
         """
         try:
-            data = bytes.fromhex(log["data"][2:]) if log["data"].startswith("0x") else bytes.fromhex(log["data"])
+            # Handle both string and bytes, with or without 0x prefix
+            data_str = log["data"]
+            if isinstance(data_str, bytes):
+                data_str = data_str.hex()
+            if data_str.startswith("0x"):
+                data_str = data_str[2:]
+            data = bytes.fromhex(data_str)
             
             if len(data) < 160:
                 return None
             
-            # V3 uses signed integers
-            amount0 = int.from_bytes(data[0:32], "big", signed=True)
-            amount1 = int.from_bytes(data[32:64], "big", signed=True)
+            # V3 uses signed integers (int256 in Solidity)
+            # Convert from two's complement representation
+            amount0_raw = int.from_bytes(data[0:32], "big")
+            amount1_raw = int.from_bytes(data[32:64], "big")
+            
+            # Convert to signed integers (two's complement)
+            if amount0_raw >= 2**255:
+                amount0 = amount0_raw - 2**256
+            else:
+                amount0 = amount0_raw
+            
+            if amount1_raw >= 2**255:
+                amount1 = amount1_raw - 2**256
+            else:
+                amount1 = amount1_raw
             
             # Determine direction from signs
             if amount0 < 0 and amount1 > 0:
-                amount_in, amount_out = abs(amount0), amount1
+                # Swapping token0 -> token1 (amount0 negative = out, amount1 positive = in)
+                return {
+                    "pool": log["address"],
+                    "protocol": "UniswapV3",
+                    "amount_in": abs(amount0),
+                    "amount_out": amount1,
+                    "log_index": log_index,
+                    "token_in_is_token0": True,
+                }
             elif amount1 < 0 and amount0 > 0:
-                amount_in, amount_out = abs(amount1), amount0
+                # Swapping token1 -> token0
+                return {
+                    "pool": log["address"],
+                    "protocol": "UniswapV3",
+                    "amount_in": abs(amount1),
+                    "amount_out": amount0,
+                    "log_index": log_index,
+                    "token_in_is_token0": False,
+                }
             else:
+                print(f"      [_parse_v3_swap_log] ❌ Invalid direction: amount0={amount0}, amount1={amount1}")
                 return None
             
-            return {
-                "pool": log["address"],
-                "protocol": "UniswapV3",
-                "amount_in": amount_in,
-                "amount_out": amount_out,
-                "log_index": log_index,
-            }
-            
-        except Exception:
+        except Exception as e:
+            print(f"      [_parse_v3_swap_log] ❌ Parse failed: {e}")
             return None
     
     def _extract_swaps_from_calls(
@@ -459,7 +518,8 @@ class EnhancedSwapDetector:
         self,
         tx_hash: str,
         log_swaps: List[Dict],
-        call_swaps: List[Dict]
+        call_swaps: List[Dict],
+        block_number: int
     ) -> List[EnhancedSwap]:
         """Cross-reference log-based and call-based swap detection.
         
@@ -471,6 +531,7 @@ class EnhancedSwapDetector:
             tx_hash: Transaction hash
             log_swaps: Swaps detected from logs
             call_swaps: Swaps detected from internal calls
+            block_number: Block number for token enrichment
             
         Returns:
             List of validated EnhancedSwap objects with confidence scores
@@ -486,6 +547,17 @@ class EnhancedSwapDetector:
         for log_swap in log_swaps:
             pool = log_swap["pool"].lower()
             
+            # Get tokens for this pool
+            token0, token1 = self._get_pool_tokens(log_swap["pool"], block_number)
+            if not token0 or not token1:
+                continue
+            
+            # Determine token direction
+            if log_swap.get("token_in_is_token0", True):
+                token_in, token_out = token0, token1
+            else:
+                token_in, token_out = token1, token0
+            
             if pool in call_swap_map:
                 # Found in both logs and calls - high confidence
                 call_swap = call_swap_map[pool]
@@ -495,8 +567,8 @@ class EnhancedSwapDetector:
                     tx_hash=tx_hash,
                     pool_address=log_swap["pool"],
                     protocol=log_swap.get("protocol", "Unknown"),
-                    token_in="",  # Will be enriched later
-                    token_out="",
+                    token_in=token_in,
+                    token_out=token_out,
                     amount_in=log_swap.get("amount_in", 0),
                     amount_out=log_swap.get("amount_out", 0),
                     from_address="",
@@ -518,8 +590,8 @@ class EnhancedSwapDetector:
                     tx_hash=tx_hash,
                     pool_address=log_swap["pool"],
                     protocol=log_swap.get("protocol", "Unknown"),
-                    token_in="",
-                    token_out="",
+                    token_in=token_in,
+                    token_out=token_out,
                     amount_in=log_swap.get("amount_in", 0),
                     amount_out=log_swap.get("amount_out", 0),
                     from_address="",
@@ -538,12 +610,17 @@ class EnhancedSwapDetector:
         for call_swap in call_swaps:
             pool = call_swap["pool"].lower()
             if pool not in matched_pools:
+                # Try to get tokens
+                token0, token1 = self._get_pool_tokens(call_swap["pool"], block_number)
+                if not token0 or not token1:
+                    continue
+                
                 swap = EnhancedSwap(
                     tx_hash=tx_hash,
                     pool_address=call_swap["pool"],
                     protocol="Unknown",
-                    token_in="",
-                    token_out="",
+                    token_in=token0,  # Default to token0->token1
+                    token_out=token1,
                     amount_in=0,
                     amount_out=0,
                     from_address="",
@@ -632,3 +709,114 @@ class EnhancedSwapDetector:
         """Reset detection statistics."""
         for key in self.stats:
             self.stats[key] = 0
+    
+    def _get_pool_tokens(self, pool_address: str, block_number: int) -> Tuple[str, str]:
+        """Get token0 and token1 from pool with caching.
+        
+        Args:
+            pool_address: Pool contract address
+            block_number: Block number for state
+            
+        Returns:
+            Tuple of (token0, token1) addresses
+        """
+        cache_key = (pool_address.lower(), block_number)
+        
+        # Check cache first
+        if cache_key in self.token_cache:
+            return self.token_cache[cache_key]
+        
+        # Try StateManager storage cache first (FAST - no RPC)
+        pool_lower = pool_address.lower()
+        token0_slot = "0x0000000000000000000000000000000000000000000000000000000000000006"  # UniswapV2 token0 slot
+        token1_slot = "0x0000000000000000000000000000000000000000000000000000000000000007"  # UniswapV2 token1 slot
+        
+        token0_value = self.state_manager.storage_cache.get((pool_lower, token0_slot))
+        token1_value = self.state_manager.storage_cache.get((pool_lower, token1_slot))
+        
+        if token0_value and token1_value:
+            # Extract address from storage value (rightmost 20 bytes)
+            token0 = "0x" + token0_value[-40:].lower()
+            token1 = "0x" + token1_value[-40:].lower()
+            
+            # Validate addresses (must be 42 chars with 0x prefix)
+            if len(token0) == 42 and len(token1) == 42:
+                self.token_cache[cache_key] = (token0, token1)
+                return (token0, token1)
+        
+        # Fallback: Try RPC calls (slow but necessary for cache miss)
+        try:
+            # Try UniswapV2 format first (most common)
+            token0 = self.uniswap_v2_parser._get_token0(pool_address, block_number)
+            token1 = self.uniswap_v2_parser._get_token1(pool_address, block_number)
+            
+            if token0 and token1:
+                self.token_cache[cache_key] = (token0, token1)
+                return (token0, token1)
+            
+            # Try UniswapV3 format
+            token0 = self.uniswap_v3_parser._get_token0(pool_address, block_number)
+            token1 = self.uniswap_v3_parser._get_token1(pool_address, block_number)
+            
+            if token0 and token1:
+                self.token_cache[cache_key] = (token0, token1)
+                return (token0, token1)
+                
+        except Exception:
+            pass
+        
+        # Return empty if failed
+        return ("", "")
+    
+    def _enrich_swap_with_tokens(
+        self,
+        swap_data: Dict,
+        tx_hash: str,
+        block_number: int
+    ) -> Optional[EnhancedSwap]:
+        """Enrich a single swap dict with token addresses.
+        
+        Args:
+            swap_data: Swap data dictionary from log parsing
+            tx_hash: Transaction hash
+            block_number: Block number for state queries
+            
+        Returns:
+            EnhancedSwap with token addresses filled in, or None if failed
+        """
+        # Get tokens from pool
+        pool_address = swap_data["pool"]
+        token0, token1 = self._get_pool_tokens(pool_address, block_number)
+        
+        if not token0 or not token1:
+            # Debug: log why we're skipping
+            print(f"  [DEBUG] Skipping swap at pool {pool_address[:10]}... - no tokens (token0={token0[:8] if token0 else 'None'}..., token1={token1[:8] if token1 else 'None'}...)")
+            return None
+        
+        # Determine swap direction based on token_in_is_token0 flag
+        if swap_data.get("token_in_is_token0", True):
+            token_in = token0
+            token_out = token1
+        else:
+            token_in = token1
+            token_out = token0
+        
+        # Create EnhancedSwap with all fields filled
+        return EnhancedSwap(
+            tx_hash=tx_hash,
+            pool_address=swap_data["pool"],
+            protocol=swap_data.get("protocol", "Unknown"),
+            token_in=token_in,
+            token_out=token_out,
+            amount_in=swap_data.get("amount_in", 0),
+            amount_out=swap_data.get("amount_out", 0),
+            from_address=swap_data.get("from", ""),
+            to_address=swap_data.get("to", ""),
+            gas_used=0,
+            detection_method="log",
+            confidence=0.65,
+            call_depth=0,
+            is_multi_hop=False,
+            hop_count=1,
+            log_index=swap_data.get("log_index")
+        )
