@@ -217,20 +217,70 @@ class MEVInspector:
         
         print(f"[Phase 2-4] Found {len(unique_pools)} unique swap pools")
         
-        # Phase 2.9: Batch fetch pool tokens (CRITICAL OPTIMIZATION!)
-        if unique_pools:
-            print(f"[Batch RPC] Fetching token pairs for {len(unique_pools)} pools...")
+        # Phase 2.9: Multi-layer caching strategy (ZERO RPC for known pools!)
+        from mev_inspect.abi_decoder import abi_decoder
+        from mev_inspect.pool_cache import get_pool_cache
+        
+        persistent_cache = get_pool_cache()
+        
+        # Layer 1: Scan current block for pool creations (rare but FREE when happens)
+        all_receipts = list(receipts_map.values())
+        discovered_pools = abi_decoder.scan_block_for_pool_creations(all_receipts)
+        if discovered_pools > 0:
+            print(f"[Layer 1] Discovered {discovered_pools} pool creations in this block (0 RPC!)")
+            # Save to persistent cache
+            for pool, tokens in abi_decoder.pool_tokens_cache.items():
+                persistent_cache.set(pool, tokens[0], tokens[1], block_number)
+        
+        # Layer 2: Check persistent cache (from previous blocks)
+        pools_needing_rpc = []
+        cache_hits = 0
+        
+        for pool in unique_pools:
+            # Check persistent cache first
+            cached = persistent_cache.get(pool)
+            if cached:
+                state_manager.pool_tokens_cache[pool] = {
+                    "token0": cached[0],
+                    "token1": cached[1]
+                }
+                cache_hits += 1
+            else:
+                # Check ABI decoder cache (from current block)
+                abi_cached = abi_decoder.get_pool_tokens_from_cache(pool)
+                if abi_cached:
+                    state_manager.pool_tokens_cache[pool] = {
+                        "token0": abi_cached[0],
+                        "token1": abi_cached[1]
+                    }
+                    cache_hits += 1
+                else:
+                    pools_needing_rpc.append(pool)
+        
+        print(f"[Layer 2] Cache hit: {cache_hits}/{len(unique_pools)} pools (0 RPC)")
+        
+        if pools_needing_rpc:
+            print(f"[Layer 3] Need RPC for {len(pools_needing_rpc)} new pools")
+        
+        # Phase 2.10: Batch RPC ONLY for pools not in any cache
+        if pools_needing_rpc:
             pool_tokens = self.rpc_client.batch_get_pool_tokens(
-                list(unique_pools), 
+                pools_needing_rpc, 
                 block_number
             )
-            print(f"[Batch RPC] Fetched {len(pool_tokens)} pool token pairs")
+            print(f"[Layer 3] Fetched {len(pool_tokens)}/{len(pools_needing_rpc)} new pools via RPC")
             
-            # Pre-populate pool tokens cache
+            # Save to ALL caches for future use
             for pool, tokens in pool_tokens.items():
+                # StateManager (current block)
                 state_manager.pool_tokens_cache[pool] = tokens
-            
-            print(f"[Phase 2-4] Pre-loaded {len(pool_tokens)} pool tokens into cache")
+                # ABI decoder (next blocks in same session)
+                abi_decoder.pool_tokens_cache[pool] = (tokens["token0"], tokens["token1"])
+                # Persistent cache (forever)
+                persistent_cache.set(pool, tokens["token0"], tokens["token1"], block_number)
+        
+        total_cached = len(state_manager.pool_tokens_cache)
+        print(f"[Phase 2-4] Total pool tokens loaded: {total_cached} ({cache_hits} cached, {len(pools_needing_rpc)} RPC)")
         
         # Phase 3: Use LEGACY parsers (already working!) instead of EnhancedSwapDetector
         # This is simpler and more reliable
