@@ -116,11 +116,21 @@ class UniswapV3Parser(DEXParser):
     
     def _get_token0(self, pool_address: str, block_number: int) -> str:
         """Get token0 address from UniswapV3 pool (with caching)."""
-        # Check cache first
-        cache_key = f"{pool_address.lower()}_token0"
+        pool_key = pool_address.lower()
+        
+        # PRIORITY 1: Check StateManager pool_tokens_cache (pre-loaded from database)
+        if hasattr(self, 'state_manager') and self.state_manager:
+            if hasattr(self.state_manager, 'pool_tokens_cache'):
+                pool_data = self.state_manager.pool_tokens_cache.get(pool_key)
+                if pool_data and 'token0' in pool_data:
+                    return pool_data['token0']
+        
+        # PRIORITY 2: Check local cache
+        cache_key = f"{pool_key}_token0"
         if hasattr(self, '_token_cache') and cache_key in self._token_cache:
             return self._token_cache[cache_key]
         
+        # PRIORITY 3: RPC call (fallback)
         try:
             result = self.rpc_client.call(
                 pool_address,
@@ -143,11 +153,21 @@ class UniswapV3Parser(DEXParser):
     
     def _get_token1(self, pool_address: str, block_number: int) -> str:
         """Get token1 address from UniswapV3 pool (with caching)."""
-        # Check cache first
-        cache_key = f"{pool_address.lower()}_token1"
+        pool_key = pool_address.lower()
+        
+        # PRIORITY 1: Check StateManager pool_tokens_cache (pre-loaded from database)
+        if hasattr(self, 'state_manager') and self.state_manager:
+            if hasattr(self.state_manager, 'pool_tokens_cache'):
+                pool_data = self.state_manager.pool_tokens_cache.get(pool_key)
+                if pool_data and 'token1' in pool_data:
+                    return pool_data['token1']
+        
+        # PRIORITY 2: Check local cache
+        cache_key = f"{pool_key}_token1"
         if hasattr(self, '_token_cache') and cache_key in self._token_cache:
             return self._token_cache[cache_key]
         
+        # PRIORITY 3: RPC call (fallback)
         try:
             result = self.rpc_client.call(
                 pool_address,

@@ -261,6 +261,9 @@ class MEVInspector:
         
         if pools_needing_rpc:
             print(f"[Layer 3] Need RPC for {len(pools_needing_rpc)} new pools")
+            # Debug: Show missing pools
+            for pool in pools_needing_rpc[:3]:  # First 3
+                print(f"  Missing: {pool}")
         
         # Phase 2.10: Batch RPC ONLY for pools not in any cache
         if pools_needing_rpc:
@@ -281,6 +284,10 @@ class MEVInspector:
         
         total_cached = len(state_manager.pool_tokens_cache)
         print(f"[Phase 2-4] Total pool tokens loaded: {total_cached} ({cache_hits} cached, {len(pools_needing_rpc)} RPC)")
+        
+        # CRITICAL: Inject state_manager into parsers so they can use pool_tokens_cache
+        for parser in self.dex_parsers.values():
+            parser.state_manager = state_manager
         
         # Phase 3: Use LEGACY parsers (already working!) instead of EnhancedSwapDetector
         # This is simpler and more reliable
@@ -333,6 +340,12 @@ class MEVInspector:
                             continue
         
         print(f"[Phase 2-4] Found {successful_txs} successful transactions, {len(all_swaps)} swaps")
+        
+        # Report cache statistics
+        for parser_name, parser in self.dex_parsers.items():
+            if hasattr(parser, 'get_cache_stats'):
+                stats = parser.get_cache_stats()
+                print(f"[Cache Stats] {parser_name}: {stats['hits']} hits, {stats['misses']} misses ({stats['hit_rate']:.1f}% hit rate)")
         
         # Build TransactionInfo for all transactions
         for tx in block["transactions"]:

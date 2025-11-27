@@ -21,6 +21,14 @@ class UniswapV2Parser(DEXParser):
     SWAP_EVENT_SIG = "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"  # Swap(address,uint256,uint256,uint256,uint256,address)
     SWAP_EVENT_SIG_CLEAN = "d78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"  # Without 0x prefix
 
+    def get_cache_stats(self) -> Dict[str, int]:
+        """Get cache hit/miss statistics."""
+        return {
+            "hits": getattr(self, '_cache_hits', 0),
+            "misses": getattr(self, '_cache_misses', 0),
+            "hit_rate": (getattr(self, '_cache_hits', 0) / max(getattr(self, '_cache_hits', 0) + getattr(self, '_cache_misses', 0), 1)) * 100
+        }
+
     def is_pool(self, address: str) -> bool:
         """Check if address is a UniswapV2 pool."""
         code = self.rpc_client.get_code(address)
@@ -164,11 +172,28 @@ class UniswapV2Parser(DEXParser):
 
     def _get_token0(self, pool_address: str, block_number: int) -> str:
         """Get token0 address from pool (with caching)."""
-        # Check cache first (if available)
-        cache_key = f"{pool_address.lower()}_token0"
+        pool_key = pool_address.lower()
+        
+        # Track cache statistics
+        if not hasattr(self, '_cache_hits'):
+            self._cache_hits = 0
+            self._cache_misses = 0
+        
+        # PRIORITY 1: Check StateManager pool_tokens_cache (pre-loaded from database)
+        if hasattr(self, 'state_manager') and self.state_manager:
+            if hasattr(self.state_manager, 'pool_tokens_cache'):
+                pool_data = self.state_manager.pool_tokens_cache.get(pool_key)
+                if pool_data and 'token0' in pool_data:
+                    self._cache_hits += 1
+                    return pool_data['token0']
+        
+        # PRIORITY 2: Check local cache
+        cache_key = f"{pool_key}_token0"
         if hasattr(self, '_token_cache') and cache_key in self._token_cache:
             return self._token_cache[cache_key]
         
+        # PRIORITY 3: RPC call (fallback)
+        self._cache_misses += 1
         try:
             result = self.rpc_client.call(
                 pool_address,
@@ -192,11 +217,21 @@ class UniswapV2Parser(DEXParser):
 
     def _get_token1(self, pool_address: str, block_number: int) -> str:
         """Get token1 address from pool (with caching)."""
-        # Check cache first (if available)
-        cache_key = f"{pool_address.lower()}_token1"
+        pool_key = pool_address.lower()
+        
+        # PRIORITY 1: Check StateManager pool_tokens_cache (pre-loaded from database)
+        if hasattr(self, 'state_manager') and self.state_manager:
+            if hasattr(self.state_manager, 'pool_tokens_cache'):
+                pool_data = self.state_manager.pool_tokens_cache.get(pool_key)
+                if pool_data and 'token1' in pool_data:
+                    return pool_data['token1']
+        
+        # PRIORITY 2: Check local cache
+        cache_key = f"{pool_key}_token1"
         if hasattr(self, '_token_cache') and cache_key in self._token_cache:
             return self._token_cache[cache_key]
         
+        # PRIORITY 3: RPC call (fallback)
         try:
             result = self.rpc_client.call(
                 pool_address,
