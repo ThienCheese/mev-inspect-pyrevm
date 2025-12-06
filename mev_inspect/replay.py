@@ -321,14 +321,21 @@ class TransactionReplayer:
                 # Contract creation - simplified
                 result_output = b""
             
+            # Parse status (can be hex string or int)
+            status_raw = receipt.get("status", 0)
+            if isinstance(status_raw, str):
+                status = int(status_raw, 16) if status_raw.startswith("0x") else int(status_raw)
+            else:
+                status = status_raw
+            
             result = ReplayResult(
-                success=receipt.get("status") == 1,
+                success=status == 1,
                 gas_used=receipt.get("gasUsed", 0),
                 output=result_output,
                 return_data=result_output,
                 internal_calls=call_tracer.get_calls(),
                 state_changes=state_tracer.get_changes(),
-                error=None if receipt.get("status") == 1 else "Transaction reverted"
+                error=None if status == 1 else "Transaction reverted"
             )
             
             return result
@@ -362,12 +369,13 @@ class TransactionReplayer:
             to_addr = Web3.to_checksum_address(to) if to.startswith("0x") else to
             
             # Execute using EVM message_call (pyrevm 0.3.3 API)
+            # Note: parameter is 'gas' not 'gas_limit'
             result = self.evm.message_call(
                 caller=caller_addr,
                 to=to_addr,
                 calldata=input_data if isinstance(input_data, bytes) else bytes.fromhex(input_data.replace('0x', '')),
                 value=value,
-                gas_limit=gas_limit
+                gas=gas_limit  # Fixed: use 'gas' parameter
             )
             
             # Extract internal calls from execution

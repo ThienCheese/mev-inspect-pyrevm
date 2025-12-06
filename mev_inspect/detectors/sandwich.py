@@ -19,44 +19,62 @@ class SandwichDetector:
         """Detect sandwich attacks that actually occurred."""
         sandwiches = []
 
-        # Group swaps by pool and token pair
+        # Group swaps by pool (not token pair, to allow direction changes)
         swaps_by_pool: Dict[str, List[Swap]] = {}
         for swap in swaps:
-            key = f"{swap.pool_address}:{swap.token_in}:{swap.token_out}"
-            if key not in swaps_by_pool:
-                swaps_by_pool[key] = []
-            swaps_by_pool[key].append(swap)
+            pool_key = swap.pool_address.lower()
+            if pool_key not in swaps_by_pool:
+                swaps_by_pool[pool_key] = []
+            swaps_by_pool[pool_key].append(swap)
 
         # For each pool, look for sandwich patterns
-        for key, pool_swaps in swaps_by_pool.items():
+        for pool_key, pool_swaps in swaps_by_pool.items():
             if len(pool_swaps) < 3:
                 continue
+            
+            # Sort by transaction position to ensure correct order
+            pool_swaps.sort(key=lambda s: s.transaction_position)
 
-            # Look for pattern: frontrun -> victim -> backrun
-            # All in same pool, same token pair
+            # Look for pattern: frontrun -> victim(s) -> backrun
+            # Same pool, but tokens can be in different directions
             for i in range(len(pool_swaps) - 2):
                 frontrun = pool_swaps[i]
-                victim = pool_swaps[i + 1]
-                backrun = pool_swaps[i + 2]
-
-                # Check if this looks like a sandwich
-                if self._is_sandwich(frontrun, victim, backrun):
-                    profit = self._calculate_sandwich_profit(frontrun, victim, backrun)
-                    if profit > 0:
-                        sandwiches.append(
-                            Sandwich(
-                                frontrun_tx=frontrun.tx_hash,
-                                target_tx=victim.tx_hash,
-                                backrun_tx=backrun.tx_hash,
-                                block_number=block_number,
-                                profit_eth=profit,
-                                profit_token=victim.token_out,
-                                profit_amount=0,  # Would calculate properly
-                                victim_swap=victim,
-                                frontrun_swap=frontrun,
-                                backrun_swap=backrun,
+                
+                # Check for victims and backrun after frontrun
+                for j in range(i + 2, len(pool_swaps)):
+                    backrun = pool_swaps[j]
+                    
+                    # Check if frontrun and backrun are from same address
+                    if not frontrun.from_address or not backrun.from_address:
+                        continue
+                    if frontrun.from_address.lower() != backrun.from_address.lower():
+                        continue
+                    
+                    # Check if this looks like a sandwich
+                    # Collect all victims between frontrun and backrun
+                    victims = pool_swaps[i + 1:j]
+                    
+                    if self._is_sandwich_pattern(frontrun, victims, backrun):
+                        profit = self._calculate_sandwich_profit(frontrun, victims, backrun)
+                        
+                        # Create sandwich with first victim as target
+                        if victims and profit > 0:
+                            sandwiches.append(
+                                Sandwich(
+                                    frontrun_tx=frontrun.tx_hash,
+                                    target_tx=victims[0].tx_hash,
+                                    backrun_tx=backrun.tx_hash,
+                                    block_number=block_number,
+                                    profit_eth=profit,
+                                    profit_token=backrun.token_out,
+                                    profit_amount=int(profit * 1e18),
+                                    victim_swap=victims[0],
+                                    frontrun_swap=frontrun,
+                                    backrun_swap=backrun,
+                                )
                             )
-                        )
+                            # Only report first sandwich per frontrun
+                            break
 
         return sandwiches
 
@@ -91,40 +109,45 @@ class SandwichDetector:
 
         return opportunities
 
-    def _is_sandwich(
-        self, frontrun: Swap, victim: Swap, backrun: Swap
+    def _is_sandwich_pattern(
+        self, frontrun: Swap, victims: List[Swap], backrun: Swap
     ) -> bool:
-        """Check if three swaps form a sandwich attack."""
-        # All must be in same pool
-        if (
-            frontrun.pool_address != victim.pool_address
-            or victim.pool_address != backrun.pool_address
-        ):
+        """Check if swaps form a sandwich attack pattern."""
+        if not victims:
             return False
-
-        # Frontrun and backrun should be in opposite direction to victim
-        # Victim: A -> B
-        # Frontrun: A -> B (same direction, pushes price)
-        # Backrun: B -> A (opposite direction, takes profit)
-
-        # Simplified check
-        if (
-            frontrun.token_in == victim.token_in
-            and backrun.token_in == victim.token_out
-            and backrun.token_out == victim.token_in
-        ):
-            return True
-
+        
+        # Pattern: 
+        # Frontrun: A -> B (same direction as victims, pushes price up)
+        # Victims: A -> B (buy at worse price)
+        # Backrun: B -> A (opposite direction, sells for profit)
+        
+        # Check if frontrun and victims go same direction
+        victim = victims[0]
+        if (frontrun.token_in.lower() == victim.token_in.lower() and 
+            frontrun.token_out.lower() == victim.token_out.lower()):
+            # Check if backrun is opposite direction
+            if (backrun.token_in.lower() == victim.token_out.lower() and 
+                backrun.token_out.lower() == victim.token_in.lower()):
+                return True
+        
         return False
 
     def _calculate_sandwich_profit(
-        self, frontrun: Swap, victim: Swap, backrun: Swap
+        self, frontrun: Swap, victims: List[Swap], backrun: Swap
     ) -> float:
         """Calculate profit from sandwich attack."""
-        # Simplified calculation
-        # Frontrun pushes price, victim trades at worse price, backrun takes profit
-        # Would need to simulate state changes properly
-        return 0.0  # Placeholder
+        # Profit = backrun_out - frontrun_in (in same token)
+        # If frontrun: 12 WETH -> 1114 BONE
+        # If backrun: 1114 BONE -> 12.05 WETH
+        # Profit = 12.05 - 12 = 0.05 WETH
+        
+        if frontrun.token_in.lower() == backrun.token_out.lower():
+            # Both use same base token
+            profit = backrun.amount_out - frontrun.amount_in
+            # Convert to ETH
+            return profit / 1e18 if profit > 0 else 0.0
+        
+        return 0.0
 
     def _calculate_potential_sandwich_profit(
         self, victim_swap: Swap, all_swaps: List[Swap], position: int, block_number: int

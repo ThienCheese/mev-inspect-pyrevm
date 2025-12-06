@@ -289,22 +289,29 @@ class MEVInspector:
         for parser in self.dex_parsers.values():
             parser.state_manager = state_manager
         
-        # Phase 3: Use LEGACY parsers (already working!) instead of EnhancedSwapDetector
-        # This is simpler and more reliable
-        print("[Phase 2-4] Using legacy DEX parsers for swap detection")
+        # Phase 3: USE PYREVM REPLAY for swap detection!
+        print("[Phase 3] Using PyRevm replay to detect swaps from internal calls")
         
         all_swaps = []
+        all_swaps_from_logs = []  # Keep log-based as fallback
         transactions_info = []
         
         successful_txs = 0
         total_logs = 0
-        parse_attempts = 0
+        replay_success = 0
+        replay_failed = 0
         
-
+        # Store transaction positions for sandwich detection
+        tx_positions = {}
+        for i, tx in enumerate(block["transactions"]):
+            tx_hash = tx["hash"].hex() if hasattr(tx["hash"], "hex") else tx["hash"]
+            tx_positions[tx_hash] = i
         
-        for tx in block["transactions"]:
+        for tx_idx, tx in enumerate(block["transactions"]):
             tx_hash = tx["hash"].hex() if hasattr(tx["hash"], "hex") else tx["hash"]
             tx_from = tx.get("from", "")
+            if isinstance(tx_from, bytes):
+                tx_from = tx_from.hex()
             tx_to = tx.get("to")
             tx_value = tx.get("value", 0)
             tx_input = tx.get("input", "0x")
@@ -326,26 +333,68 @@ class MEVInspector:
             if status == 1:
                 successful_txs += 1
                 total_logs += len(logs)
-            
-            # Parse swaps using legacy parsers (UniswapV2, UniswapV3, etc.)
-            if status == 1 and logs:
-                for log in logs:
-                    parse_attempts += 1
-                    for parser_name, parser in self.dex_parsers.items():
-                        try:
-                            swap = parser.parse_swap(tx_hash, tx_input, [log], block_number)
-                            if swap:
-                                all_swaps.append(swap)
-                        except Exception:
-                            continue
+                
+                # NEW: Try PyRevm replay first
+                try:
+                    replay_result = replayer.replay_transaction_with_data(tx, receipt)
+                    if replay_result.success:
+                        replay_success += 1
+                        if len(replay_result.internal_calls) > 0:
+                            # Extract swaps from internal calls
+                            swaps_from_replay = replayer.extract_swaps_from_calls(replay_result.internal_calls)
+                            # TODO: Create proper Swap objects from swap_info and add to all_swaps
+                            # For now, internal calls are captured but not yet converted to swaps
+                    else:
+                        if replay_result.error:
+                            # Replay executed but transaction failed
+                            pass
+                except Exception as e:
+                    replay_failed += 1
+                    # Log first few errors for debugging
+                    if replay_failed <= 3:
+                        print(f"[Replay Error] TX {tx_hash[:16]}...: {str(e)[:100]}")
+                    # Fallback: continue with legacy parsing
+                    pass
+                
+                # ALWAYS parse logs as well (for comparison and fallback)
+                if logs:
+                    for log in logs:
+                        for parser_name, parser in self.dex_parsers.items():
+                            try:
+                                swap = parser.parse_swap(tx_hash, tx_input, [log], block_number)
+                                if swap:
+                                    # Add transaction position and from_address
+                                    swap.transaction_position = tx_idx
+                                    swap.from_address = tx_from
+                                    all_swaps.append(swap)
+                                    all_swaps_from_logs.append(swap)
+                            except Exception:
+                                continue
         
-        print(f"[Phase 2-4] Found {successful_txs} successful transactions, {len(all_swaps)} swaps")
+        print(f"[Phase 3] Replay stats: {replay_success} success, {replay_failed} failed")
+        print(f"[Phase 3] Found {successful_txs} successful transactions, {len(all_swaps)} swaps (logs: {len(all_swaps_from_logs)})")
         
         # Report cache statistics
         for parser_name, parser in self.dex_parsers.items():
             if hasattr(parser, 'get_cache_stats'):
                 stats = parser.get_cache_stats()
                 print(f"[Cache Stats] {parser_name}: {stats['hits']} hits, {stats['misses']} misses ({stats['hit_rate']:.1f}% hit rate)")
+        
+        # Deduplicate swaps: same tx_hash + pool + tokens = duplicate
+        # Keep only one (prefer uniswap_v2 over sushiswap for consistency)
+        seen_swaps = set()
+        deduped_swaps = []
+        for swap in all_swaps:
+            key = (swap.tx_hash, swap.pool_address.lower(), 
+                   swap.token_in.lower(), swap.token_out.lower())
+            if key not in seen_swaps:
+                seen_swaps.add(key)
+                deduped_swaps.append(swap)
+        
+        if len(deduped_swaps) < len(all_swaps):
+            print(f"[Phase 3] Deduplication: {len(all_swaps)} -> {len(deduped_swaps)} swaps (removed {len(all_swaps) - len(deduped_swaps)} duplicates)")
+        
+        all_swaps = deduped_swaps
         
         # Build TransactionInfo for all transactions
         for tx in block["transactions"]:

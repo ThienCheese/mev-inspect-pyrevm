@@ -29,6 +29,8 @@ class Swap:
     amount_out: int
     amount_in_eth: float = 0.0
     amount_out_eth: float = 0.0
+    transaction_position: int = 0  # Position in block (for sandwich detection)
+    from_address: str = ""  # Sender address (for sandwich detection)
 
 
 @dataclass

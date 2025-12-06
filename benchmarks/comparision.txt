@@ -1,0 +1,74 @@
+============================================================
+BENCHMARK RESULTS
+============================================================
+
+Block Number: 12914944
+Timestamp: 2025-12-06T11:34:58.612075
+
+============================================================
+SUMMARY
+============================================================
+SPEED: PyRevm is 1.03x slower (52.25s vs 50.56s)
+RPC: PyRevm uses 56.6% fewer RPC calls (331 vs 763)
+ACCURACY: Both modes detected same number of swaps (42)
+MEV: Arbitrages: 2 vs 2 (diff: +0), Sandwiches: 2 vs 0 (diff: +2)
+MEMORY: PyRevm uses +4.3MB more memory (6.1MB vs 1.7MB)
+
+============================================================
+DETAILED METRICS
+============================================================
+
+Metric                                         PyRevm       Legacy         Diff
+------------------------------------------------------------------------------
+Total Time (s)                                  52.25        50.56        +1.68
+Inspection Time (s)                             52.24        50.56        +1.68
+Total Transactions                                222          222           +0
+Successful Transactions                           186          186           +0
+Swaps Detected                                     42           42           +0
+Arbitrages Detected                                 2            2           +0
+Sandwiches Detected                                 2            0           +2
+Transactions with Swaps                            28           28           +0
+Avg Swaps per TX                                1.500        1.500       +0.000
+Total RPC Calls                                   331          763         -432
+Batch RPC Calls                                     2            0           +2
+Peak Memory (MB)                                  6.1          1.7         +4.3
+Error Count                                         0            0           +0
+
+==============================================================================
+============================================================
+BENCHMARK RESULTS
+============================================================
+
+Block Number: 12775690
+Timestamp: 2025-12-06T11:06:19.150788
+
+============================================================
+SUMMARY
+============================================================
+SPEED: PyRevm is 1.28x slower (57.66s vs 44.91s)
+RPC: PyRevm uses 8.6% fewer RPC calls (459 vs 502)
+ACCURACY: Both modes detected same number of swaps (21)
+MEV: Arbitrages: 0 vs 0 (diff: +0), Sandwiches: 1 vs 0 (diff: +1)
+MEMORY: PyRevm uses +2.4MB more memory (4.6MB vs 2.2MB)
+
+============================================================
+DETAILED METRICS
+============================================================
+
+Metric                                         PyRevm       Legacy         Diff
+------------------------------------------------------------------------------
+Total Time (s)                                  57.66        44.91       +12.74
+Inspection Time (s)                             57.65        44.91       +12.74
+Total Transactions                                117          117           +0
+Successful Transactions                           113          113           +0
+Swaps Detected                                     21           21           +0
+Arbitrages Detected                                 0            0           +0
+Sandwiches Detected                                 1            0           +1
+Transactions with Swaps                            16           16           +0
+Avg Swaps per TX                                1.312        1.312       +0.000
+Total RPC Calls                                   459          502          -43
+Batch RPC Calls                                     2            0           +2
+Peak Memory (MB)                                  4.6          2.2         +2.4
+Error Count                                         0            0           +0
+
+==============================================================================
