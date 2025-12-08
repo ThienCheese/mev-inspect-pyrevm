@@ -137,7 +137,7 @@ Our MEV detection framework consists of five main components:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    MEV Inspector                         │
+│                    MEV Inspector                        │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
 │  │RPC Client    │  │State Manager │  │Pool Cache    │  │
 │  │(Batch Calls) │  │(In-memory)   │  │(Persistent)  │  │
